@@ -20,10 +20,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import (
     TimeoutException,
     NoSuchElementException,
     ElementClickInterceptedException,
+    ElementNotInteractableException,
 )
 
 try:
@@ -261,48 +263,93 @@ class NaverPoster:
                     break
 
             logger.info("에디터 로딩 완료")
+
+            # 팝업/오버레이 제거 (글감, 도움말 등)
+            self._dismiss_popups()
             return True
 
         except TimeoutException:
             logger.error("에디터 로딩 타임아웃")
-            # 현재 페이지 상태 로깅
             logger.error(f"현재 URL: {self.driver.current_url}")
             return False
+
+    def _dismiss_popups(self):
+        """에디터 팝업/오버레이 제거 (글감 추천, 도움말 패널 등)"""
+        try:
+            removed = self.driver.execute_script("""
+                var count = 0;
+                document.querySelectorAll('.se-popup-dim').forEach(function(d) {
+                    d.remove(); count++;
+                });
+                document.querySelectorAll('.se-popup').forEach(function(p) {
+                    p.remove(); count++;
+                });
+                document.querySelectorAll('.se-help-panel').forEach(function(h) {
+                    h.remove(); count++;
+                });
+                return count;
+            """)
+            if removed:
+                logger.info(f"팝업/오버레이 {removed}개 제거")
+                time.sleep(0.5)
+        except Exception:
+            pass
 
     def _set_title(self, title):
         """글 제목 입력"""
         try:
-            # Smart Editor ONE 제목 영역
-            title_selectors = [
-                ".se-title-text .se-text-paragraph",  # SE ONE
-                "#subject",  # 구형 에디터
-                ".post_title input",
-                "[placeholder*='제목']",
-            ]
+            # 방법 1: Smart Editor ONE - 제목 영역 클릭 후 ActionChains으로 입력
+            try:
+                title_area = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, ".se-title-text .se-text-paragraph")
+                    )
+                )
+                title_area.click()
+                time.sleep(0.5)
+                actions = ActionChains(self.driver)
+                actions.send_keys(title)
+                actions.perform()
+                logger.info(f"제목 입력 완료 (ActionChains): {title}")
+                return True
+            except (TimeoutException, NoSuchElementException,
+                    ElementNotInteractableException):
+                pass
 
-            for selector in title_selectors:
+            # 방법 2: 구형 에디터 input/textarea
+            for selector in ["#subject", ".post_title input", "[placeholder*='제목']"]:
                 try:
-                    title_elem = WebDriverWait(self.driver, 5).until(
+                    elem = WebDriverWait(self.driver, 3).until(
                         EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
                     )
-                    title_elem.click()
+                    elem.click()
                     time.sleep(0.3)
-                    title_elem.send_keys(title)
+                    elem.send_keys(title)
                     logger.info(f"제목 입력 완료: {title}")
                     return True
-                except (TimeoutException, NoSuchElementException):
+                except (TimeoutException, NoSuchElementException,
+                        ElementNotInteractableException):
                     continue
 
-            # JavaScript 방식 시도
+            # 방법 3: JavaScript 직접 입력
             self.driver.execute_script(
                 """
-                var titleElem = document.querySelector('.se-title-text .se-text-paragraph')
-                    || document.querySelector('#subject')
-                    || document.querySelector('[placeholder*="제목"]');
+                var titleElem = document.querySelector('.se-title-text .se-text-paragraph');
                 if (titleElem) {
+                    titleElem.click();
+                    titleElem.focus();
                     titleElem.textContent = arguments[0];
                     titleElem.dispatchEvent(new Event('input', {bubbles: true}));
+                    return true;
                 }
+                var inputElem = document.querySelector('#subject')
+                    || document.querySelector('[placeholder*="제목"]');
+                if (inputElem) {
+                    inputElem.value = arguments[0];
+                    inputElem.dispatchEvent(new Event('input', {bubbles: true}));
+                    return true;
+                }
+                return false;
             """,
                 title,
             )
@@ -316,71 +363,39 @@ class NaverPoster:
     def _set_content_html(self, html_content):
         """본문 HTML 삽입"""
         try:
-            # 방법 1: Smart Editor ONE - HTML 모드 전환 후 삽입
-            # HTML 버튼 클릭
-            html_btn_selectors = [
-                ".se-toolbar-button-html",
-                "button[data-name='html']",
-                ".se-popup-button-html",
-            ]
+            # 방법 1: 본문 영역 클릭 후 클립보드 붙여넣기
+            try:
+                body_area = self.driver.find_element(
+                    By.CSS_SELECTOR, ".se-component-content"
+                )
+                body_area.click()
+                time.sleep(0.5)
 
-            html_mode = False
-            for selector in html_btn_selectors:
-                try:
-                    btn = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    btn.click()
-                    time.sleep(1)
-                    html_mode = True
-                    break
-                except NoSuchElementException:
-                    continue
-
-            if html_mode:
-                # HTML 입력 영역에 내용 삽입
-                html_input_selectors = [
-                    ".se-popup-content textarea",
-                    "#html_code",
-                    "textarea.se-html-textarea",
-                ]
-                for selector in html_input_selectors:
-                    try:
-                        textarea = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        textarea.clear()
-                        textarea.send_keys(html_content)
-
-                        # 확인 버튼 클릭
-                        confirm_btn = self.driver.find_element(
-                            By.CSS_SELECTOR,
-                            ".se-popup-button-confirm, .se-popup-footer button",
-                        )
-                        confirm_btn.click()
-                        time.sleep(1)
-                        logger.info("HTML 모드로 본문 삽입 완료")
-                        return True
-                    except NoSuchElementException:
-                        continue
+                # 클립보드에 HTML 복사 후 붙여넣기
+                import pyperclip
+                pyperclip.copy(html_content)
+                actions = ActionChains(self.driver)
+                actions.key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
+                time.sleep(0.2)
+                actions = ActionChains(self.driver)
+                actions.key_down(Keys.CONTROL).send_keys("v").key_up(Keys.CONTROL).perform()
+                time.sleep(1)
+                logger.info("클립보드 붙여넣기로 본문 삽입 완료")
+                return True
+            except (NoSuchElementException, ElementNotInteractableException):
+                pass
 
             # 방법 2: JavaScript로 에디터 본문 직접 교체
             self.driver.execute_script(
                 """
-                // Smart Editor ONE
                 var contentArea = document.querySelector('.se-content .se-component-content')
                     || document.querySelector('.se-main-container')
-                    || document.querySelector('#content');
+                    || document.querySelector('.se-content');
                 if (contentArea) {
                     contentArea.innerHTML = arguments[0];
                     contentArea.dispatchEvent(new Event('input', {bubbles: true}));
                     return true;
                 }
-
-                // 구형 에디터 (contentEditable)
-                var editableArea = document.querySelector('[contenteditable="true"]');
-                if (editableArea) {
-                    editableArea.innerHTML = arguments[0];
-                    editableArea.dispatchEvent(new Event('input', {bubbles: true}));
-                    return true;
-                }
-
                 return false;
             """,
                 html_content,
@@ -433,28 +448,30 @@ class NaverPoster:
             return False
 
     def _set_tags(self, tags):
-        """태그 입력"""
+        """태그 입력 (발행 모달 내에서 호출)"""
         if not tags:
             return True
 
         try:
-            tag_input_selectors = [
-                ".post_tag input",
-                "#tag",
-                ".se-tag-input input",
-                "[placeholder*='태그']",
+            tag_selectors = [
+                "input.tag_input__rvUB5",           # 현재 버전
+                "input[placeholder*='태그']",        # placeholder 기반
+                ".post_tag input",                   # 구형
             ]
 
-            for selector in tag_input_selectors:
+            for selector in tag_selectors:
                 try:
-                    tag_input = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    tag_input = WebDriverWait(self.driver, 3).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                    )
                     for tag in tags:
                         tag_input.send_keys(tag)
                         tag_input.send_keys(Keys.ENTER)
                         time.sleep(0.3)
                     logger.info(f"태그 입력 완료: {tags}")
                     return True
-                except NoSuchElementException:
+                except (TimeoutException, NoSuchElementException,
+                        ElementNotInteractableException):
                     continue
 
             logger.warning("태그 입력 영역을 찾을 수 없음")
@@ -464,53 +481,93 @@ class NaverPoster:
             logger.error(f"태그 입력 실패: {e}")
             return False
 
-    def _publish(self):
-        """발행 버튼 클릭"""
+    def _open_publish_modal(self):
+        """상단 발행 버튼 클릭하여 발행 설정 모달 열기"""
         try:
-            publish_selectors = [
-                ".publish_btn",
-                "#publish_btn",
-                "button.se-publish-button",
-                ".btn_publish",
-                "button[data-action='publish']",
-            ]
-
-            for selector in publish_selectors:
-                try:
-                    btn = WebDriverWait(self.driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    btn.click()
-                    time.sleep(2)
-
-                    # 발행 확인 팝업이 있는 경우
-                    confirm_selectors = [
-                        ".confirm_btn",
-                        ".se-popup-button-confirm",
-                        "button.btn_ok",
-                    ]
-                    for confirm_sel in confirm_selectors:
+            # 텍스트 기반으로 발행 버튼 찾기
+            for btn in self.driver.find_elements(By.TAG_NAME, "button"):
+                if btn.is_displayed() and btn.text.strip() == "발행":
+                    cls = btn.get_attribute("class") or ""
+                    # 상단 바의 발행 버튼 (publish_btn)
+                    if "publish_btn" in cls or "publish" in cls.lower():
                         try:
-                            confirm_btn = self.driver.find_element(
-                                By.CSS_SELECTOR, confirm_sel
-                            )
-                            confirm_btn.click()
-                            break
-                        except NoSuchElementException:
-                            continue
+                            btn.click()
+                        except ElementClickInterceptedException:
+                            self.driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(2)
+                        logger.info("발행 모달 열기 완료")
+                        return True
 
-                    time.sleep(PUBLISH_TIMEOUT)
-                    logger.info("발행 완료")
+            # CSS 셀렉터 기반 폴백
+            for selector in ["button[class*='publish_btn']",
+                             "button[data-click-area='tpb.publish']"]:
+                try:
+                    btn = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    self.driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(2)
+                    logger.info("발행 모달 열기 완료 (셀렉터)")
                     return True
-                except (TimeoutException, NoSuchElementException):
+                except NoSuchElementException:
                     continue
 
             logger.error("발행 버튼을 찾을 수 없음")
             return False
 
         except Exception as e:
-            logger.error(f"발행 중 오류: {e}")
+            logger.error(f"발행 모달 열기 실패: {e}")
             return False
+
+    def _click_final_publish(self):
+        """발행 모달 내 최종 발행(확인) 버튼 클릭"""
+        try:
+            # 모달 내 확인 버튼 찾기
+            for selector in ["button.confirm_btn__WEaBq",
+                             "button[class*='confirm_btn']"]:
+                try:
+                    btn = WebDriverWait(self.driver, 5).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                    )
+                    btn.click()
+                    time.sleep(PUBLISH_TIMEOUT)
+                    logger.info("최종 발행 버튼 클릭 완료")
+                    return True
+                except (TimeoutException, NoSuchElementException):
+                    continue
+
+            # 텍스트 기반 폴백: 모달 내 "발행" 버튼 (상단 바 것 제외)
+            publish_buttons = []
+            for btn in self.driver.find_elements(By.TAG_NAME, "button"):
+                if btn.is_displayed() and btn.text.strip() == "발행":
+                    cls = btn.get_attribute("class") or ""
+                    if "confirm" in cls:
+                        publish_buttons.insert(0, btn)  # 우선순위
+                    elif "publish_btn" not in cls:
+                        publish_buttons.append(btn)
+
+            if publish_buttons:
+                publish_buttons[0].click()
+                time.sleep(PUBLISH_TIMEOUT)
+                logger.info("최종 발행 버튼 클릭 완료 (텍스트 기반)")
+                return True
+
+            logger.error("최종 발행 버튼을 찾을 수 없음")
+            return False
+
+        except Exception as e:
+            logger.error(f"최종 발행 실패: {e}")
+            return False
+
+    def _publish(self):
+        """발행 프로세스: 모달 열기 → 태그/카테고리 설정 → 최종 발행"""
+        # 1. 발행 모달 열기
+        if not self._open_publish_modal():
+            return False
+
+        # 2. 최종 발행 버튼 클릭
+        if not self._click_final_publish():
+            return False
+
+        return True
 
     def _get_published_url(self):
         """발행된 글 URL 추출"""
@@ -600,15 +657,17 @@ class NaverPoster:
                 result["error"] = "본문 삽입 실패"
                 return result
 
-            # 4. 카테고리 선택
-            self._set_category(category)
-
-            # 5. 태그 입력
-            self._set_tags(tags)
-
-            # 6. 발행
+            # 4. 발행 (모달 열기 → 태그 설정 → 최종 발행)
             if publish_immediately:
-                if self._publish():
+                if not self._open_publish_modal():
+                    result["error"] = "발행 모달 열기 실패"
+                    return result
+
+                # 모달 내에서 카테고리/태그 설정
+                self._set_category(category)
+                self._set_tags(tags)
+
+                if self._click_final_publish():
                     result["success"] = True
                     result["url"] = self._get_published_url()
                     result["published_at"] = datetime.now().isoformat()
