@@ -1,0 +1,101 @@
+{
+  "thumbnail": {
+    "description": "블로그 썸네일 이미지 스타일 설정",
+    "width": 800,
+    "height": 450,
+    "background": {
+      "style": "gradient",
+      "colors": ["#1a1a2e", "#16213e"],
+      "gradient_direction": "top_to_bottom"
+    },
+    "text": {
+      "font_size_main": 42,
+      "font_size_sub": 18,
+      "font_color": "#ffffff",
+      "font_family": "NanumGothicBold",
+      "text_align": "center",
+      "max_chars_per_line": 15,
+      "line_spacing": 1.4
+    },
+    "decoration": {
+      "show_logo_text": true,
+      "logo_text": "특허법인 테헤란",
+      "logo_position": "bottom_right",
+      "logo_font_size": 14,
+      "logo_color": "#888888",
+      "show_accent_line": true,
+      "accent_line_color": "#4a90d9",
+      "accent_line_width": 3,
+      "border_radius": 0,
+      "padding": 40
+    },
+    "presets": {
+      "dark_minimal": {
+        "background": {"style": "gradient", "colors": ["#1a1a2e", "#16213e"]},
+        "text": {"font_color": "#ffffff"},
+        "decoration": {"accent_line_color": "#4a90d9"}
+      },
+      "light_clean": {
+        "background": {"style": "gradient", "colors": ["#f8f9fa", "#e9ecef"]},
+        "text": {"font_color": "#212529"},
+        "decoration": {"accent_line_color": "#0068b7", "logo_color": "#666666"}
+      },
+      "warm_professional": {
+        "background": {"style": "gradient", "colors": ["#2c1810", "#4a2c20"]},
+        "text": {"font_color": "#f5e6d3"},
+        "decoration": {"accent_line_color": "#d4a574"}
+      },
+      "blue_corporate": {
+        "background": {"style": "gradient", "colors": ["#0d2137", "#1a3a5c"]},
+        "text": {"font_color": "#e8f0fe"},
+        "decoration": {"accent_line_color": "#5b9bd5"}
+      }
+    },
+    "active_preset": "dark_minimal"
+  },
+
+  "body_images": {
+    "description": "본문 삽입 이미지 설정",
+    "count": {
+      "min": 3,
+      "max": 7,
+      "default": 4
+    },
+    "size": {
+      "width": 400,
+      "height": 280,
+      "display_width": "60%",
+      "display_max_width": "360px"
+    },
+    "ai_generation": {
+      "model": "dall-e-3",
+      "size": "1024x1024",
+      "quality": "standard",
+      "style": "natural",
+      "base_prompt_suffix": "Minimalist, clean, professional Korean legal/business context. Soft muted colors. No text or letters in the image."
+    },
+    "placement": {
+      "strategy": "even_distribution",
+      "first_image_after_paragraph": 3,
+      "min_gap_paragraphs": 3,
+      "avoid_near_cta": true,
+      "align": "center"
+    }
+  },
+
+  "user_images": {
+    "description": "사용자 제공 이미지 처리 설정",
+    "supported_formats": ["jpg", "jpeg", "png", "webp"],
+    "max_file_size_mb": 10,
+    "resize": {
+      "max_width": 800,
+      "max_height": 600,
+      "quality": 85
+    },
+    "mixing_strategy": {
+      "description": "사용자 이미지와 AI 이미지 혼합 전략",
+      "user_image_priority_positions": [1, 3, 5],
+      "ai_fill_remaining": true
+    }
+  }
+}

@@ -1,10 +1,26 @@
+# Core
 streamlit
-langchain
-langchain-anthropic
 anthropic
+httpx
+python-dotenv
+
+# Content Analysis
 beautifulsoup4
 requests
-chromadb
-python-dotenv
 lxml
 pandas
+scikit-learn
+
+# Image Processing
+Pillow
+
+# Blog Posting (Selenium)
+selenium
+webdriver-manager
+pyperclip
+
+# Scheduling
+APScheduler
+
+# Scraper (legacy)
+chromadb
