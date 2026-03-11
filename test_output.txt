@@ -1,8 +1,0 @@
-Testing available Anthropic models for the provided API key...
-[FAILED] claude-3-7-sonnet-20250219 - Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3
-[FAILED] claude-3-5-sonnet-20241022 - Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3
-[FAILED] claude-3-5-sonnet-20240620 - Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3
-[FAILED] claude-3-sonnet-20240229 - Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3
-[FAILED] claude-3-opus-20240229 - Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3
-[FAILED] claude-3-haiku-20240307 - Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3
-[FAILED] claude-2.1 - Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-2

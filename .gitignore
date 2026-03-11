@@ -14,8 +14,21 @@ ENV/
 env.bak/
 venv.bak/
 
-# Logs
+# Data (scraped blog data - copyright sensitive)
+data/
+persona_db/
+
+# Generated outputs
 outputs/
+
+# Vector DB
+chroma_db/
 
 # VS Code
 .vscode/
+
+# Test files
+test_output.txt
+
+# Claude Code
+.claude/
