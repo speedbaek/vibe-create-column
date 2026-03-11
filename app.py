@@ -3,6 +3,7 @@ import os
 import json
 import time
 import html
+import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -70,7 +71,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── 유틸리티 ──────────────────────────────────────────
+# -- 유틸리티 --
 
 def render_copy_button(text, button_id="copyBtn", label="📋 복사하기"):
     import base64
@@ -99,7 +100,6 @@ def render_copy_button(text, button_id="copyBtn", label="📋 복사하기"):
 
 
 def render_html_copy_button(html_text, button_id="htmlCopyBtn"):
-    """HTML 코드 복사 버튼"""
     import base64
     import streamlit.components.v1 as components
     b64_text = base64.b64encode(html_text.encode("utf-8")).decode("utf-8")
@@ -150,7 +150,22 @@ def render_safe_html(text):
     st.markdown(f'<div class="result-box">{safe_text}</div>', unsafe_allow_html=True)
 
 
-# ── 사이드바 ──────────────────────────────────────────
+def run_async(coro):
+    """Streamlit에서 async 함수 실행"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
+        else:
+            return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
+# -- 사이드바 --
 
 PERSONA_OPTIONS = {
     "yun_ung_chae": "윤웅채 변리사",
@@ -179,10 +194,9 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🖼️ 이미지 설정")
-    include_images = st.toggle("이미지 포함", value=True)
+    include_images = st.toggle("이미지 포함", value=False)
 
     if include_images:
-        # 썸네일 프리셋
         THUMB_PRESETS = {
             "dark_minimal": "🌑 다크 미니멀",
             "light_clean": "☀️ 라이트 클린",
@@ -203,8 +217,8 @@ with st.sidebar:
     st.subheader("상태")
     db_dir = f"persona_db/{selected_persona_id}"
     if os.path.exists(db_dir):
-        import glob
-        json_files = glob.glob(os.path.join(db_dir, "*.json"))
+        import glob as glob_mod
+        json_files = glob_mod.glob(os.path.join(db_dir, "*.json"))
         if json_files:
             st.success("✅ 학습 데이터 적용됨")
         else:
@@ -220,7 +234,7 @@ with st.sidebar:
     st.caption(f"Naver ID: {'✅' if naver_id else '❌ (.env에 추가 필요)'}")
 
 
-# ── 메인 탭 ──────────────────────────────────────────
+# -- 메인 탭 --
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🚀 자동 생성 & 발행",
@@ -236,13 +250,13 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 with tab1:
     st.markdown("### 키워드 → 생성 → 미리보기 → 발행")
-    st.caption("키워드를 입력하면 사람냄새 나는 칼럼을 자동 생성하고, 미리보기 후 발행할 수 있습니다.")
+    st.caption("키워드를 입력하면 사람냄새 나는 칼럼을 자동 생성하고, 미리보기 후 네이버 블로그에 자동 발행합니다.")
 
-    # ── 사용자 이미지 업로드 (이미지 포함 시) ──
+    # 사용자 이미지 업로드
     uploaded_image_paths = []
     if include_images:
         with st.expander("📷 사용자 이미지 업로드 (선택사항)", expanded=False):
-            st.caption("제공 이미지가 있으면 AI 이미지와 혼합 배치됩니다. 없으면 AI 이미지만 사용합니다.")
+            st.caption("제공 이미지가 있으면 AI 이미지와 혼합 배치됩니다.")
             uploaded_files = st.file_uploader(
                 "이미지 파일 선택",
                 type=["jpg", "jpeg", "png", "webp"],
@@ -258,32 +272,22 @@ with tab1:
                     uploaded_image_paths.append(save_path)
                 st.success(f"✅ {len(uploaded_files)}개 이미지 업로드 완료")
 
-    # ── 배치 키워드 입력 ──
+    # 배치 키워드 입력
     st.markdown("#### 📋 키워드 등록")
 
     if "batch_items" not in st.session_state:
         st.session_state.batch_items = []
 
-    col_input, col_mode, col_time, col_add = st.columns([4, 2, 2, 1])
+    col_input, col_add = st.columns([6, 1])
 
     with col_input:
         new_topic = st.text_input("키워드/주제", placeholder="예: 스타트업 상표등록 필수인 이유", label_visibility="collapsed")
-    with col_mode:
-        new_mode = st.selectbox("발행 모드", ["즉시 발행", "예약 발행"], label_visibility="collapsed")
-    with col_time:
-        if new_mode == "예약 발행":
-            new_time = st.text_input("예약 시간", placeholder="예: 2026-03-12 09:00", label_visibility="collapsed")
-        else:
-            new_time = ""
-            st.write("")
     with col_add:
         if st.button("➕", use_container_width=True):
             if new_topic.strip():
                 st.session_state.batch_items.append({
                     "topic": new_topic.strip(),
-                    "publish_mode": "immediate" if new_mode == "즉시 발행" else "scheduled",
-                    "scheduled_time": new_time if new_mode == "예약 발행" else None,
-                    "tags": [],
+                    "publish_mode": "immediate",
                 })
                 st.rerun()
 
@@ -291,16 +295,11 @@ with tab1:
     if st.session_state.batch_items:
         st.markdown("#### 등록된 키워드")
         for idx, item in enumerate(st.session_state.batch_items):
-            col_num, col_topic, col_mode_disp, col_del = st.columns([0.5, 5, 3, 1])
+            col_num, col_topic, col_del = st.columns([0.5, 6, 1])
             with col_num:
                 st.write(f"**{idx+1}**")
             with col_topic:
                 st.write(item["topic"])
-            with col_mode_disp:
-                if item["publish_mode"] == "immediate":
-                    st.write("🔴 즉시 발행")
-                else:
-                    st.write(f"🕐 예약: {item.get('scheduled_time', 'TBD')}")
             with col_del:
                 if st.button("🗑️", key=f"del_{idx}", use_container_width=True):
                     st.session_state.batch_items.pop(idx)
@@ -308,7 +307,7 @@ with tab1:
 
         st.markdown("---")
 
-        # ── 일괄 생성 버튼 ──
+        # 일괄 생성 버튼
         col_gen, col_clear = st.columns([3, 1])
         with col_gen:
             generate_all = st.button("🚀 전체 생성 시작", type="primary", use_container_width=True)
@@ -317,15 +316,14 @@ with tab1:
                 st.session_state.batch_items = []
                 st.rerun()
 
-        if generate_all and ENGINE_LOADED:
+        if generate_all and ENGINE_LOADED and ORCHESTRATOR_LOADED:
             st.session_state.generated_results = []
             progress_bar = st.progress(0)
 
             total = len(st.session_state.batch_items)
             for idx, item in enumerate(st.session_state.batch_items):
                 step_label = f"[{idx+1}/{total}] {item['topic']}"
-                img_label = " (이미지 포함)" if include_images else ""
-                with st.spinner(f"{step_label} 생성 중...{img_label}"):
+                with st.spinner(f"{step_label} 생성 중..."):
                     try:
                         result = generate_preview(
                             topic=item["topic"],
@@ -338,22 +336,23 @@ with tab1:
                             image_count=image_count if include_images else None,
                             thumbnail_preset=thumbnail_preset,
                         )
-                        result["publish_mode"] = item["publish_mode"]
-                        result["scheduled_time"] = item.get("scheduled_time")
+                        result["publish_mode"] = item.get("publish_mode", "immediate")
                         st.session_state.generated_results.append(result)
                     except Exception as e:
                         st.session_state.generated_results.append({
                             "success": False,
                             "error": str(e),
                             "title": item["topic"],
-                            "publish_mode": item["publish_mode"],
                         })
 
                 progress_bar.progress((idx + 1) / total)
 
             st.success(f"✅ {len(st.session_state.generated_results)}건 생성 완료!")
 
-    # ── 생성 결과 미리보기 ──
+        elif generate_all and not ORCHESTRATOR_LOADED:
+            st.error("오케스트레이터 모듈을 불러오지 못했습니다.")
+
+    # 생성 결과 미리보기
     if "generated_results" in st.session_state and st.session_state.generated_results:
         st.markdown("---")
         st.markdown("### 📄 생성 결과")
@@ -361,27 +360,20 @@ with tab1:
         for idx, result in enumerate(st.session_state.generated_results):
             title = result.get("title", f"결과 {idx+1}")
             success = result.get("success", False)
-            mode = "즉시" if result.get("publish_mode") == "immediate" else "예약"
 
             with st.expander(
-                f"{'✅' if success else '⚠️'} {title} ({result.get('char_count', 0)}자, {mode})",
+                f"{'✅' if success else '⚠️'} {title} ({result.get('char_count', 0)}자)",
                 expanded=(idx == 0),
             ):
                 if success:
-                    # 미리보기 탭
-                    preview_tab, text_tab, html_tab, info_tab = st.tabs(["미리보기", "텍스트", "HTML", "정보"])
+                    preview_tab, text_tab, info_tab = st.tabs(["미리보기", "텍스트", "정보"])
 
                     with preview_tab:
-                        import streamlit.components.v1 as components
-                        components.html(result.get("preview_html", ""), height=600, scrolling=True)
+                        render_safe_html(result.get("raw_content", ""))
 
                     with text_tab:
                         render_safe_html(result.get("raw_content", ""))
                         render_copy_button(result.get("raw_content", ""), f"copy_text_{idx}")
-
-                    with html_tab:
-                        st.code(result.get("html_content", "")[:2000], language="html")
-                        render_html_copy_button(result.get("html_content", ""), f"copy_html_{idx}")
 
                     with info_tab:
                         sim = result.get("similarity", {})
@@ -389,47 +381,110 @@ with tab1:
                         st.write(f"- 생성 시도: **{result.get('attempts', 0)}회**")
                         st.write(f"- 유사도: **{sim.get('max_doc_similarity', 0):.3f}** (임계값: 0.3)")
                         st.write(f"- 유사도 통과: {'✅' if sim.get('passed', False) else '⚠️'}")
-                        st.write(f"- 유사 문장: {len(sim.get('flagged_sentences', []))}개")
-
-                        # 이미지 정보
-                        img_data = result.get("image_data")
-                        if img_data:
-                            st.markdown("---")
-                            st.write(f"- 🖼️ 이미지: **{img_data.get('total_count', 0)}장** "
-                                     f"(썸네일 1 + 본문 {len(img_data.get('body_images', []))})")
-                            if img_data.get("thumbnail"):
-                                st.write(f"- 썸네일: ✅")
-                            else:
-                                st.write(f"- 썸네일: ❌")
-
                 else:
                     st.error(f"생성 실패: {result.get('error', '알 수 없는 오류')}")
 
-        # ── 발행 버튼 ──
+        # ━━ 발행 버튼 ━━
         st.markdown("---")
-        col_publish, col_naver = st.columns([1, 1])
+        st.markdown("### 📤 네이버 블로그 자동 발행")
 
-        with col_publish:
-            if st.button("📤 네이버 블로그에 발행", type="primary", use_container_width=True):
-                naver_id = os.environ.get("NAVER_ID", "")
-                if not naver_id:
-                    st.error("⚠️ .env 파일에 NAVER_ID와 NAVER_PW를 설정해주세요.")
-                else:
-                    st.info("🔧 네이버 자동 발행은 로컬 PC에서 실행해야 합니다.\n"
-                            "Chrome이 설치된 환경에서 아래 명령어를 실행하세요:")
-                    st.code("python -c \"from src.naver_poster import quick_post; ...\"", language="bash")
-
-        with col_naver:
+        naver_id = os.environ.get("NAVER_ID", "")
+        if not naver_id:
+            st.error("⚠️ .env 파일에 NAVER_ID와 NAVER_PW를 설정해주세요.")
+        else:
             st.info(
-                "💡 **수동 발행 방법:**\n"
-                "1. HTML 탭에서 HTML 코드 복사\n"
+                "💡 **자동 발행 안내:**\n"
+                "- Chrome이 실행 중이고 네이버 로그인 상태여야 합니다\n"
+                "- Chrome을 `--remote-debugging-port=9222` 옵션으로 시작하세요\n"
+                "- 발행 버튼을 누르면 각 글이 순차적으로 발행됩니다"
+            )
+
+            if st.button("🚀 전체 자동 발행", type="primary", use_container_width=True):
+                successful = [r for r in st.session_state.generated_results if r.get("success")]
+                if not successful:
+                    st.error("발행 가능한 생성 결과가 없습니다.")
+                else:
+                    try:
+                        from src.naver_poster import NaverPoster
+
+                        publish_progress = st.progress(0)
+                        publish_log = st.empty()
+
+                        async def publish_all():
+                            poster = NaverPoster()
+                            results = []
+                            try:
+                                await poster.connect()
+                                await poster.login()
+
+                                for i, result in enumerate(successful):
+                                    title = result.get("title", "")
+                                    content = result.get("raw_content", "")
+
+                                    publish_log.info(f"[{i+1}/{len(successful)}] '{title[:30]}...' 발행 중...")
+
+                                    try:
+                                        post_result = await poster.post(
+                                            title=title,
+                                            content=content,
+                                            blog_id=naver_id,
+                                        )
+                                        results.append({
+                                            "title": title,
+                                            **post_result,
+                                        })
+                                    except Exception as e:
+                                        results.append({
+                                            "title": title,
+                                            "success": False,
+                                            "error": str(e),
+                                        })
+
+                                    publish_progress.progress((i + 1) / len(successful))
+
+                                    # 발행 간 대기 (연속 발행 시 안전)
+                                    if i < len(successful) - 1:
+                                        await asyncio.sleep(5)
+
+                            finally:
+                                await poster.close()
+
+                            return results
+
+                        publish_results = run_async(publish_all())
+
+                        # 결과 표시
+                        success_count = sum(1 for r in publish_results if r.get("success"))
+                        fail_count = len(publish_results) - success_count
+
+                        if success_count > 0:
+                            st.success(f"✅ {success_count}건 발행 성공!")
+                        if fail_count > 0:
+                            st.warning(f"⚠️ {fail_count}건 발행 실패")
+
+                        for r in publish_results:
+                            if r.get("success"):
+                                st.write(f"✅ **{r['title'][:40]}** → {r.get('url', '')}")
+                            else:
+                                st.write(f"❌ **{r['title'][:40]}** → {r.get('error', '알 수 없는 오류')}")
+
+                    except ImportError:
+                        st.error("naver_poster 모듈을 불러올 수 없습니다. playwright가 설치되어 있는지 확인해주세요.")
+                    except Exception as e:
+                        st.error(f"발행 중 오류: {type(e).__name__}: {e}")
+
+        # 수동 발행 옵션
+        with st.expander("📋 수동 발행 (텍스트 복사)"):
+            st.info(
+                "**수동 발행 방법:**\n"
+                "1. 위에서 텍스트 복사\n"
                 "2. 네이버 블로그 에디터 열기\n"
-                "3. HTML 모드에서 붙여넣기"
+                "3. 글쓰기에 붙여넣기"
             )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Tab 2: 단건 칼럼 생성 (기존 기능)
+# Tab 2: 단건 칼럼 생성
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 with tab2:
     st.markdown("### 단건 칼럼 생성")
@@ -471,25 +526,8 @@ with tab2:
                     st.write(f"유사도: {sim['max_doc_similarity']:.3f} | "
                              f"{'✅ 통과' if sim['passed'] else '⚠️ 유사도 높음'}")
 
-                # 이미지 생성 (사이드바 설정에 따라)
-                single_image_data = None
-                if include_images and IMAGE_LOADED:
-                    with st.spinner("🖼️ 이미지 생성 중..."):
-                        try:
-                            single_image_data = generate_blog_images(
-                                topic=topic,
-                                content=full_text,
-                                image_count=image_count,
-                            )
-                            if thumbnail_preset:
-                                thumb = generate_thumbnail(topic, subtitle="특허법인 테헤란", preset=thumbnail_preset)
-                                single_image_data["thumbnail"] = thumb
-                            st.success(f"🖼️ 이미지 {single_image_data.get('total_count', 0)}장 생성")
-                        except Exception as img_e:
-                            st.warning(f"이미지 생성 실패: {img_e}")
-
                 st.markdown("---")
-                col_dl, col_copy, col_html = st.columns(3)
+                col_dl, col_copy = st.columns(2)
                 with col_dl:
                     st.download_button(
                         "💾 텍스트 저장", data=full_text,
@@ -498,22 +536,6 @@ with tab2:
                     )
                 with col_copy:
                     render_copy_button(full_text, "copyBtn_single")
-                with col_html:
-                    if ORCHESTRATOR_LOADED:
-                        html_content = format_column_html(
-                            full_text, selected_persona_id,
-                            include_images=bool(single_image_data),
-                            image_data=single_image_data,
-                        )
-                        render_html_copy_button(html_content, "htmlCopyBtn_single")
-
-                # 이미지 포함 미리보기
-                if single_image_data and ORCHESTRATOR_LOADED:
-                    st.markdown("---")
-                    st.markdown("#### 📱 이미지 포함 미리보기")
-                    preview_html = format_column_preview(full_text, selected_persona_id, single_image_data)
-                    import streamlit.components.v1 as components
-                    components.html(preview_html, height=600, scrolling=True)
 
             except Exception as e:
                 st.error(f"생성 중 오류: {type(e).__name__}: {e}")
@@ -634,7 +656,6 @@ with tab4:
 with tab5:
     st.markdown("### 발행 히스토리")
 
-    # 생성 히스토리
     history_file = f"outputs/{selected_persona_id}/history.json"
     if os.path.exists(history_file):
         try:
