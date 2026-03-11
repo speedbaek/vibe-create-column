@@ -1,0 +1,46 @@
+<current_dom_explanation>
+This is a temporary snapshot of the current page's DOM structure. The DOM will change if you navigate to or interact with another page. Use a tool like browser_get_dom to capture and preserve the DOM in your trajectory if needed for later reference.
+</current_dom_explanation>
+<current_dom>
+[0] (84,65)<button aria-label='Fullscreen' class='st-emotion-cache-18ac3gt etjibo420' />
+⚙️ 시스템 설정
+1. 페르소나 선택
+[1] (120,300)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	글을 작성할 변리사를 선택하세요:
+[2] (120,328)<div  />
+	[3] (120,328)<div  />
+		[4] (109,328)<div  />
+			[5] (63,328)<div >윤웅채 변리사 />
+			[6] (101,328)<div  />
+				[7] (101,328)<input aria-label='Selected 윤웅채 변리사. 글을 작성할 변리사를 선택하세요:' class='st-ae st-af st-cs st-bc st-ai st-aj st-br st-ct st-ee st-ca st-cv st-cg st-ch st-ci st-cj st-ay st-ce st-ck st-ar st-as st-b6 st-b5 st-cl st-cm st-cn st-co st-cw' role='combobox' />
+		[8] (210,328)<div  />
+2. DB 상태
+윤웅채 변리사의 맞춤 학습 데이터가 적용되었습니다.
+💡
+사용 팁:
+구체적인 키워드나 상황을 입력할수록 더 자연스러운 칼럼이 생성됩니다.
+[9] (241,500)<div  />
+	[10] (241,500)<div  />
+[11] (937,23)<button class='st-emotion-cache-egm30d etjibo414' />
+	[12] (937,23)<div  />
+		[13] (937,23)<span >Deploy />
+[14] (974,23)<span  />
+	[15] (974,23)<button aria-label='Main menu' class='st-emotion-cache-1aplgmp etjibo415' />
+[16] (620,500)<section class='stMain st-emotion-cache-4rsbii e1td4qo61' scrollable='true' />
+	[17] (616,157)<details class='st-emotion-cache-1h9usn1 ewmru5c1' />
+		실제로 있었던 이야기입니다
+		몇 해 전, 식품 관련 스타트업 대표님이 저를 찾아오셨습니다. 몇 년 전에 다른 사무소를 통해 특허를 등록받았는데, 경쟁사가 유사한 제품을 출시했고 침해 여부를 확인하고 싶다는 것이었습니다.
+		히스토리를 확인해 보니, 문제가 있었습니다.
+		당시 담당 변리사가 심사관의 거절이유를 극복하기 위해 의견서에서 본인 발명의 핵심 구성요소를 지나치게 좁게 한정해 버린 겁니다. 경쟁사 제품은 그 한정된 범위를 교묘하게 비껴가고 있었습니다.
+		결론적으로, 특허는 살아있었지만 경쟁사를 막을 수 있는 실질적인 힘은 이미 잃어버린 상태였습니다. 등록 당시에 히스토리를 제대로 관리했다면 충분히 막을 수 있었던 상황이었는데 말이죠.
+		그 대표님의 표정이 아직도 눈에 선합니다.
+		그렇다면 어떻게 해야 할까요?
+		히스토리 관리의 핵심은 두 가지입니다.
+		첫째, 의견서 작성 시 권리 범위를 불필요하게 스스로 좁히지 말아야 합니다.
+		거절이유를 극복하기 위해 의견서를 작성할 때, 단순히 "이번 심사를 통과하는 것"만을 목표로 삼으면 안 됩니다. 훗날 분쟁이 발생했을 때 어떻게 해석될 것인지를 항상 염두에 두고 문장 하나하나를 작성해야 합니다.
+		경험 많은 변리사가 필요한 이유가 바로 여기에 있습니다. 단순히 서류를 작성하는 것이 아니라, 미래의 분쟁까지 내다보는 전략적 사고가 필요합니다.
+		둘째, 보정서 작성 시 청구항의 범위를 신중하게 조정해야 합니다.
+		심사 과정에서 청구항을 보정하는 경우, 그 보정 내용 역시 히스토리에 그대로 남습니다. 보정을 통해 포기한 범위는 나중에 되찾기가 매우 어렵습니다.
+		따라서, 처음 출원 단계에서부터 청구항을 얼마나 전략적으로 잘 설계하느냐가 결국 히스토리 관리의 출발점이 됩니다. 처음 단추를 잘 꿰어야 한다는 말이 특허에서도 그대로 적용됩니다.
+
+</current_dom>

@@ -1,0 +1,28 @@
+<current_dom_explanation>
+This is a temporary snapshot of the current page's DOM structure. The DOM will change if you navigate to or interact with another page. Use a tool like browser_get_dom to capture and preserve the DOM in your trajectory if needed for later reference.
+</current_dom_explanation>
+<current_dom>
+⚙️ 시스템 설정
+1. 페르소나 선택
+2. DB 상태
+[0] (938,23)<button class='st-emotion-cache-egm30d etjibo414' />
+	[1] (938,23)<div  />
+		[2] (938,23)<span >Deploy />
+[3] (975,23)<span  />
+	[4] (975,23)<button aria-label='Main menu' class='st-emotion-cache-1aplgmp etjibo415' />
+📝 특허법인 AI 칼럼 자동 생성기
+선택한 변리사의 **과거 문체와 성향(페르소나)**을 학습하여 완벽한 전문가 칼럼을 작성합니다.
+[5] (345,227)<button class='st-bq st-br st-b6 st-b5 st-ar st-as st-bs st-bt st-bu st-bv st-bw st-bx st-by st-bz st-c0 st-c1 st-c2 st-c3 st-c4 st-c5 st-c6 st-c7 st-c8 st-c9 st-b1 st-ca st-cb st-cc st-cd st-ce st-cf st-cg st-ch st-ci st-cj st-ck st-ah st-ai st-aj st-cl st-cm st-cn st-co st-cp st-cq' id='tabs-bui2-tab-0' role='tab' />
+	[6] (345,227)<div  />
+		[7] (345,227)<p >✍️ 칼럼 생성 엔진 />
+[8] (465,227)<button class='st-bq st-br st-b6 st-b5 st-ar st-as st-bs st-bt st-bu st-bv st-bw st-bx st-by st-bz st-c0 st-c1 st-c2 st-c3 st-c4 st-c5 st-c6 st-cr st-c8 st-c9 st-b1 st-ca st-cb st-cc st-cd st-ce st-cf st-cg st-ch st-ci st-cj st-ck st-ah st-ai st-aj st-cl st-cm st-cn st-co st-cp st-cq' id='tabs-bui2-tab-1' role='tab' />
+	[9] (465,227)<div  />
+		[10] (465,227)<p >⚙️ 프롬프트 및 DB 설정 (V2) />
+[11] (595,227)<button class='st-bq st-br st-b6 st-b5 st-ar st-as st-bs st-bt st-bu st-bv st-bw st-bx st-by st-bz st-c0 st-c1 st-c2 st-c3 st-c4 st-c5 st-c6 st-cr st-c8 st-c9 st-b1 st-ca st-cb st-cc st-cd st-ce st-cf st-cg st-ch st-ci st-cj st-ck st-ah st-ai st-aj st-cl st-cm st-cn st-co st-cp st-cq' id='tabs-bui2-tab-2' role='tab' />
+	[12] (595,227)<div  />
+		[13] (595,227)<p >🌐 블로그 자동 수집기 />
+[14] (701,227)<button class='st-bq st-br st-b6 st-b5 st-ar st-as st-bs st-bt st-bu st-bv st-bw st-bx st-by st-bz st-c0 st-c1 st-c2 st-c3 st-c4 st-c5 st-c6 st-cr st-c8 st-c9 st-b1 st-ca st-cb st-cc st-cd st-ce st-cf st-cg st-ch st-ci st-cj st-ck st-ah st-ai st-aj st-cl st-cm st-cn st-co st-cp st-cq' id='tabs-bui2-tab-3' role='tab' />
+	[15] (701,227)<div  />
+		[16] (701,227)<p >📜 과거 생성 기록 />
+
+</current_dom>

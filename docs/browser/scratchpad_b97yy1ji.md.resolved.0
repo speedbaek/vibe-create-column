@@ -1,0 +1,8 @@
+# Task: Test Naver Blog Scraping Functionality
+- [ ] Navigate to http://localhost:8508
+- [ ] Ensure '윤웅채 변리사' is selected on the sidebar
+- [ ] Click the '🌐 블로그 자동 수집기' tab
+- [ ] Verify/Set Naver Blog ID: jninsa, Start Date: 2020-12-17, End Date: 2021-06-30
+- [ ] Click '🚀 윤웅채 변리사 DB로 자동 스크래핑 시작'
+- [ ] Wait for scraping to finish (approx 20s)
+- [ ] Verify balloon animation, success message, and progress logs

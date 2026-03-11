@@ -1,0 +1,21 @@
+# Environments
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs
+outputs/
+
+# VS Code
+.vscode/

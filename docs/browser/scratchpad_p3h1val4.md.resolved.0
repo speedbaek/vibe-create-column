@@ -1,0 +1,8 @@
+# Task: Verify DB Status on Streamlit App
+
+## Checklist
+- [ ] Open http://localhost:8506
+- [ ] Locate the sidebar and find "2. DB 상태"
+- [ ] Check if the success message "윤웅채 변리사의 문체 학습 데이터가 준비되었습니다." is displayed in a green success box
+- [ ] Confirm if the previous warning about missing DB is gone
+- [ ] Report findings to the user

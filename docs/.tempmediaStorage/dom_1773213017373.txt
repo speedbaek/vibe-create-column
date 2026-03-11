@@ -1,0 +1,57 @@
+<current_dom_explanation>
+This is a temporary snapshot of the current page's DOM structure. The DOM will change if you navigate to or interact with another page. Use a tool like browser_get_dom to capture and preserve the DOM in your trajectory if needed for later reference.
+</current_dom_explanation>
+<current_dom>
+[0] (84,65)<button aria-label='Fullscreen' class='st-emotion-cache-18ac3gt etjibo420' />
+⚙️ 시스템 설정
+1. 페르소나 선택
+[1] (120,300)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	글을 작성할 변리사를 선택하세요:
+[2] (120,328)<div  />
+	[3] (120,328)<div  />
+		[4] (109,328)<div  />
+			[5] (63,328)<div >윤웅채 변리사 />
+			[6] (101,328)<div  />
+				[7] (101,328)<input aria-label='Selected 윤웅채 변리사. 글을 작성할 변리사를 선택하세요:' class='st-ae st-af st-cj st-d1 st-ai st-aj st-de st-e1 st-ef st-dt st-c7 st-c2 st-c3 st-c4 st-c5 st-ay st-dw st-ca st-ar st-as st-b6 st-b5 st-bv st-bx st-bu st-bw st-e3' role='combobox' />
+		[8] (210,328)<div  />
+2. DB 상태
+윤웅채 변리사의 맞춤 학습 데이터가 적용되었습니다.
+💡
+사용 팁:
+구체적인 키워드나 상황을 입력할수록 더 자연스러운 칼럼이 생성됩니다.
+[9] (241,500)<div  />
+	[10] (241,500)<div  />
+[11] (937,23)<button class='st-emotion-cache-egm30d etjibo414' />
+	[12] (937,23)<div  />
+		[13] (937,23)<span >Deploy />
+[14] (974,23)<span  />
+	[15] (974,23)<button aria-label='Main menu' class='st-emotion-cache-1aplgmp etjibo415' />
+[16] (620,500)<section class='stMain st-emotion-cache-4rsbii e1td4qo61' scrollable='true' />
+	이곳의 내용을 통째로 수정하면, 모든 변리사가 글을 전개하는 방식(인사말, 결론 구조 등)의 뼈대가 변경됩니다.
+	기본 프롬프트 내용
+	[17] (616,135)<textarea aria-label='기본 프롬프트 내용' class='st-br st-dx st-by st-c0 st-bz st-c1 st-c2 st-c4 st-c3 st-c5 st-ca st-b8 st-ep st-dt st-d3 st-eq st-er st-es st-et st-eu st-ch st-af st-ag st-d1 st-ai st-aj st-de st-e3 st-ev st-ew st-f1 st-ey st-ez' id='text_area_13' scrollable='true' />
+	[18] (405,253)<button class='st-emotion-cache-5qfegl etjibo42' />
+		[19] (405,253)<div  />
+			[20] (405,253)<span  />
+				[21] (405,253)<div  />
+					[22] (405,253)<p >💾 기본 프롬프트 템플릿 변경 저장 />
+	👤 윤웅채 변리사 맞춤 설정 관리
+	해당 변리사만의 특수한 글쓰기 성향과 반드시 지켜야 할 규칙을 수정합니다.
+	[23] (456,449)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+		성향 (Personality)
+	[24] (456,509)<textarea aria-label='성향 (Personality)' class='st-br st-dx st-by st-c0 st-bz st-c1 st-c2 st-c4 st-c3 st-c5 st-ca st-b8 st-ep st-dt st-d3 st-eq st-er st-es st-et st-eu st-ch st-af st-ag st-d1 st-ai st-aj st-de st-e3 st-ev st-ew st-ex st-ey st-ez' id='text_area_1' />
+	[25] (775,449)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+		특별 추가 규칙 (한 줄에 하나씩 작성)
+	[26] (775,509)<textarea aria-label='특별 추가 규칙 (한 줄에 하나씩 작성)' class='st-br st-dx st-by st-c0 st-bz st-c1 st-c2 st-c4 st-c3 st-c5 st-ca st-b8 st-ep st-dt st-d3 st-eq st-er st-es st-et st-eu st-ch st-af st-ag st-d1 st-ai st-aj st-de st-e3 st-ev st-ew st-ex st-ey st-ez' id='text_area_2' />
+	[27] (399,588)<button class='st-emotion-cache-5qfegl etjibo42' />
+		[28] (399,588)<div  />
+			[29] (399,588)<span  />
+				[30] (399,588)<div  />
+					[31] (399,588)<p >💾 윤웅채 변리사 전용 규칙 저장 />
+	📚 윤웅채 변리사 전용 추가 참고 문헌 주입
+	이 빈칸에 판례, 관련 법령 기사, 회사 소식 등을 복사해서 붙여넣으세요. AI가 다음 글 작성 시 배경 지식으로 읽고 반영합니다.
+	[32] (616,803)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+		참고 문헌 텍스트 (extra_text.txt)
+	[33] (616,902)<textarea aria-label='참고 문헌 텍스트 (extra_text.txt)' class='st-br st-dx st-by st-c0 st-bz st-c1 st-c2 st-c4 st-c3 st-c5 st-ca st-b8 st-ep st-dt st-d3 st-eq st-er st-es st-et st-eu st-ch st-af st-ag st-d1 st-ai st-aj st-de st-e3 st-ev st-ew st-f1 st-ey st-ez' id='text_area_14' placeholder='여기에 참고할 텍스트를 통째로 복사해서 붙여넣으세요.' />
+
+</current_dom>

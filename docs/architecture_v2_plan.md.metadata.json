@@ -1,0 +1,5 @@
+{
+  "artifactType": "ARTIFACT_TYPE_IMPLEMENTATION_PLAN",
+  "summary": "Architecture plan for V2 of the AI Column Generator focusing on custom prompts, formats, and DB management per persona.",
+  "updatedAt": "2026-03-11T06:35:50.830566200Z"
+}

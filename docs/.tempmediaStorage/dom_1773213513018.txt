@@ -1,0 +1,43 @@
+[0] (84,65)<button aria-label='Fullscreen' class='st-emotion-cache-18ac3gt etjibo420' />
+⚙️ 시스템 설정
+1. 페르소나 선택
+[1] (120,300)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	글을 작성할 변리사를 선택하세요:
+[2] (120,328)<div  />
+	[3] (120,328)<div  />
+		[4] (109,328)<div  />
+			[5] (63,328)<div >윤웅채 변리사 />
+			[6] (101,328)<div  />
+				[7] (101,328)<input aria-label='Selected 윤웅채 변리사. 글을 작성할 변리사를 선택하세요:' class='st-ae st-af st-cj st-d2 st-ai st-aj st-cq st-e1 st-ef st-dt st-c7 st-c2 st-c3 st-c4 st-c5 st-ay st-dw st-ca st-ar st-as st-b6 st-b5 st-bv st-bx st-bu st-bw st-e3' role='combobox' />
+		[8] (210,328)<div  />
+2. DB 상태
+윤웅채 변리사의 맞춤 학습 데이터가 적용되었습니다.
+💡
+사용 팁:
+구체적인 키워드나 상황을 입력할수록 더 자연스러운 칼럼이 생성됩니다.
+[9] (241,500)<div  />
+	[10] (241,500)<div  />
+[11] (937,23)<button class='st-emotion-cache-egm30d etjibo414' />
+	[12] (937,23)<div  />
+		[13] (937,23)<span >Deploy />
+[14] (974,23)<span  />
+	[15] (974,23)<button aria-label='Main menu' class='st-emotion-cache-1aplgmp etjibo415' />
+📝 특허법인 AI 칼럼 자동 생성기
+선택한 변리사의 **과거 문체와 성향(페르소나)**을 학습하여 완벽한 전문가 칼럼을 작성합니다.
+[16] (345,205)<button class='st-bp st-bq st-b6 st-b5 st-ar st-as st-br st-bs st-bt st-bu st-bv st-bw st-bx st-by st-bz st-c0 st-c1 st-c2 st-c3 st-c4 st-c5 st-c6 st-c7 st-c8 st-b1 st-c9 st-ca st-cb st-cc st-cd st-ce st-cf st-cg st-ch st-ci st-cj st-ah st-ai st-aj st-ck st-cl st-cm st-cn st-co st-cp' id='tabs-bui2-tab-0' role='tab' />
+	[17] (345,205)<div  />
+		[18] (345,205)<p >✍️ 칼럼 생성 엔진 />
+[19] (465,205)<button class='st-bp st-bq st-b6 st-b5 st-ar st-as st-br st-bs st-bt st-bu st-bv st-bw st-bx st-by st-bz st-c0 st-c1 st-c2 st-c3 st-c4 st-c5 st-cq st-c7 st-c8 st-b1 st-c9 st-ca st-cb st-cc st-cd st-ce st-cf st-cg st-ch st-ci st-cj st-ah st-ai st-aj st-ck st-cl st-cm st-cn st-co st-cp' id='tabs-bui2-tab-1' role='tab' />
+	[20] (465,205)<div  />
+		[21] (465,205)<p >⚙️ 프롬프트 및 DB 설정 (V2) />
+[22] (595,205)<button class='st-bp st-bq st-b6 st-b5 st-ar st-as st-br st-bs st-bt st-bu st-bv st-bw st-bx st-by st-bz st-c0 st-c1 st-c2 st-c3 st-c4 st-c5 st-cq st-c7 st-c8 st-b1 st-c9 st-ca st-cb st-cc st-cd st-ce st-cf st-cg st-ch st-ci st-cj st-ah st-ai st-aj st-ck st-cl st-cm st-cn st-co st-cp' id='tabs-bui2-tab-2' role='tab' />
+	[23] (595,205)<div  />
+		[24] (595,205)<p >🌐 블로그 자동 수집기 />
+[25] (620,244)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	✍️ 작성할 칼럼의 주제나 키워드를 상세히 입력하세요:
+[26] (620,285)<textarea aria-label='✍️ 작성할 칼럼의 주제나 키워드를 상세히 입력하세요:' class='st-br st-dx st-by st-c0 st-bz st-c1 st-c2 st-c4 st-c3 st-c5 st-ca st-b8 st-ep st-dt st-d4 st-eq st-er st-es st-et st-eu st-ch st-af st-ag st-d2 st-ai st-aj st-cq st-e3 st-ev st-ew st-ex st-ey st-ez' id='text_area_1' placeholder='예: 스타트업이 초기 단계에서 상표권을 반드시 먼저 출원해야 하는 이유와 실제 분쟁 사례' />
+[27] (362,344)<button class='st-emotion-cache-5qfegl etjibo42' />
+	[28] (362,344)<div  />
+		[29] (362,344)<span  />
+			[30] (362,344)<div  />
+				[31] (362,344)<p >🚀 칼럼 생성 시작 />

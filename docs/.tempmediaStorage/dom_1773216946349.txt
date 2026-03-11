@@ -1,0 +1,47 @@
+<current_dom_explanation>
+This is a temporary snapshot of the current page's DOM structure. The DOM will change if you navigate to or interact with another page. Use a tool like browser_get_dom to capture and preserve the DOM in your trajectory if needed for later reference.
+</current_dom_explanation>
+<current_dom>
+[0] (84,65)<button aria-label='Fullscreen' class='st-emotion-cache-18ac3gt etjibo420' />
+⚙️ 시스템 설정
+1. 페르소나 선택
+[1] (120,300)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	글을 작성할 변리사를 선택하세요:
+[2] (120,328)<div  />
+	[3] (120,328)<div  />
+		[4] (109,328)<div  />
+			[5] (63,328)<div >윤웅채 변리사 />
+			[6] (101,328)<div  />
+				[7] (101,328)<input aria-label='Selected 윤웅채 변리사. 글을 작성할 변리사를 선택하세요:' class='st-ae st-af st-ck st-d4 st-ai st-aj st-cr st-e3 st-f5 st-dv st-c8 st-c3 st-c4 st-c5 st-c6 st-ay st-dy st-cb st-ar st-as st-b6 st-b5 st-bw st-by st-bv st-bx st-e5' role='combobox' />
+		[8] (210,328)<div  />
+2. DB 상태
+윤웅채 변리사의 맞춤 학습 데이터가 적용되었습니다.
+💡
+사용 팁:
+구체적인 키워드나 상황을 입력할수록 더 자연스러운 칼럼이 생성됩니다.
+[9] (938,23)<button class='st-emotion-cache-egm30d etjibo414' />
+	[10] (938,23)<div  />
+		[11] (938,23)<span >Deploy />
+[12] (975,23)<span  />
+	[13] (975,23)<button aria-label='Main menu' class='st-emotion-cache-1aplgmp etjibo415' />
+[14] (620,500)<section class='stMain st-emotion-cache-4rsbii e1td4qo61' scrollable='true' />
+	이렇게 생각하시는 분들이 많습니다. 그런데, 실제로 분쟁이 발생했을 때, 이 히스토리 하나 때문에 수억 원짜리 권리가 한순간에 무력화되는 경우를 저는 수도 없이 봐왔습니다. 오늘 이 글을 끝까지 읽으시면, 왜 특허 히스토리 관리가 그토록 중요한지 이해하실 수 있을 겁니다.
+	특허 히스토리란 무엇인가요?
+	특허 출원을 하면, 특허청 심사관이 해당 출원을 검토합니다. 이 과정에서 심사관은 기존에 등록된 선행기술과 비교하여 거절이유를 통지하는 경우가 대부분입니다.
+	출원인(또는 대리인인 변리사)은 이에 대응하여 의견서 및 보정서를 제출합니다. 이때 제출된 모든 서류, 즉 거절이유통지, 의견서, 보정서, 심사관과의 협의 내용 등이 모두 기록으로 남게 됩니다.
+	이 일련의 기록 전체를
+	특허 심사 히스토리(File Wrapper)
+	라고 부릅니다.
+	중요한 것은, 이 히스토리는 특허 등록 이후에도 완전히 공개된다는 점입니다. 누구든 키프리스(KIPRIS)를 통해 조회가 가능합니다. 여러분의 특허 등록 과정에서 무슨 말을 했는지, 어떤 주장을 했는지가 고스란히 남아 있습니다.
+	왜 히스토리가 문제가 되는 걸까요?
+	여기서부터가 핵심입니다.
+	특허 분쟁이 발생하면, 상대방 측 변리사나 변호사는 가장 먼저 이 히스토리를 뒤집니다. 출원인이 심사 과정에서 스스로 한 말, 스스로 포기한 권리 범위가 있다면, 그것을 무기로 삼는 것입니다.
+	이를 법률 용어로
+	금반언의 원칙(Prosecution History Estoppel)
+	이라고 합니다.
+	쉽게 말씀드리면 이렇습니다.
+	심사 과정에서 "저의 발명은 A라는 구성요소를 반드시 포함합니다"라고 주장하며 등록을 받았다면, 나중에 A라는 구성요소가 없는 경쟁사 제품을 침해라고 주장하기가 매우 어려워집니다. 본인 스스로 A가 필수라고 인정했기 때문입니다.
+	이런 상황, 생각보다 정말 흔합니다.
+	경험 없는 변리사가 거절이유를 극복하기 위해 무심코 쓴 의견서 한 장이, 훗날 그 특허의 권리 범위를 스스로 좁혀버리는 결과를 초래하는 것입니다. 등록은 받았지만, 정작 경쟁사를 막을 수 없는 껍데기 특허가 되어버리는 거죠.
+
+</current_dom>

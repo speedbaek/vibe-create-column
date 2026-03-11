@@ -1,0 +1,14 @@
+# Task: Generate column in Streamlit app
+
+## Plan
+- [ ] Open http://localhost:8501
+- [ ] Select '윤웅채 변리사' in the sidebar
+- [ ] Enter topic: '소상공인이 상표권 등록을 가장 먼저 해야 하는 핵심 이유 3가지와 보호 전략'
+- [ ] Click '🚀 칼럼 생성 시작'
+- [ ] Wait for generation (30-40 seconds)
+- [ ] Verify success message and content
+- [ ] Final summary
+
+## Notes
+- Topic: 소상공인이 상표권 등록을 가장 먼저 해야 하는 핵심 이유 3가지와 보호 전략
+- Expected Persona: 윤웅채 변리사

@@ -1,0 +1,44 @@
+# 특허법인 변리사 칼럼 생성기 프로젝트
+
+## 1. 기획 및 준비
+- [x] 스펙 및 아키텍처 확정 (`implementation_plan.md` 리뷰 완료)
+- [x] 작업 디렉토리 생성 (`C:\Users\TEHERAN\.gemini\antigravity\scratch\column_generator`)
+- [x] 파이썬 가상환경 설정 및 필요 패키지(requirements.txt) 설치
+
+## 2. 데이터 수집 및 전처리 모듈 (Data Ingestion)
+- [ ] URL 텍스트 추출기 작성 (블로그 스크래핑용)
+- [ ] 텍스트 전처리 및 Chunking 로직 구현
+- [ ] 로컬 Vector DB (ChromaDB 등) 연동 및 텍스트 임베딩 저장 로직 구현
+
+## 3. 페르소나 프롬프트 엔진 구현 (Persona Engine)
+- [ ] 5인 변리사별 (윤웅채, 김신연, 이상담, 김봉근, 백상희) 성향 분석 및 프롬프트 기본 템플릿 작성
+- [ ] RAG(Retrieval-Augmented Generation) 파이프라인 구축 (Vector DB에서 관련 문체 레퍼런스 검색)
+- [ ] LLM API 연동 클래스 작성 (OpenAI / Claude 등)
+
+## 4. 웹 UI 구현 (Streamlit)
+- [ ] 기본 레이아웃 및 디자인 (사이드바, 입력창, 결과창)
+- [ ] 데이터 수집기(블로그 링크 입력 폼) UI 구현
+- [ ] 칼럼 생성 실행 및 결과 표시 UI 구현
+
+## 5. 테스트 및 검증
+- [x] 샘플 블로그 링크를 이용한 변리사 DB 생성 테스트
+- [x] 시나리오별 칼럼 생성 및 문체 모방도 테스트 (UI 및 Claude Sonnet 4.6 모델 정상 작동 완료)
+- [x] `walkthrough.md` 작성 및 최종 승인
+
+## 6. V2 고도화 (유연한 커스텀 아키텍처)
+- [x] `config/` 및 `persona_db/` 폴더 구조 생성
+- [x] 하드코딩된 프롬프트를 `config/base_prompt.md` 및 개별 페르소나 JSON 파일로 분리
+- [x] `engine.py`가 새 폴더 구조의 모든 파일(txt, json)을 동적으로 읽어오도록 엔진 리팩토링
+- [x] `app.py` UI의 DB 상태 체크 로직을 새 폴더 구조에 맞게 변경
+- [x] V2 텍스트 주입 및 생성 테스트 완료
+- [x] Streamlit UI 내 **[프롬프트/DB 설정 관리] 탭** 추가 구현
+
+## 7. 자동 수집 블로그 스크래퍼 UI 연동
+- [x] `scraper.py`를 파라미터 기반으로 호출 되도록 리팩토링 및 텍스트 본문 추출 로직 통합
+- [x] `app.py`에 세 번째 탭 [🌐 블로그 자동 수집기] 추가
+- [x] 스크래핑된 결과를 `persona_db/{id}/blogs.json`에 누적 저장하는 로직 연결
+- [x] 통합 스크래핑 봇 검증
+
+## 8. 생성된 칼럼 히스토리 보관 기능
+- [x] 칼럼 생성 완료 시 `outputs/{persona_id}/history.json`에 결과물 자동 저장 로직 추가
+- [x] `app.py`에 4번째 탭 [📜 과거 생성 기록] 추가 및 열람 UI 구현

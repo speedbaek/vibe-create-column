@@ -1,0 +1,26 @@
+# 특허법인 변리사 칼럼 생성기 프로젝트
+
+## 1. 기획 및 준비
+- [x] 스펙 및 아키텍처 확정 ([implementation_plan.md](file:///C:/Users/TEHERAN/.gemini/antigravity/brain/f9b7cda2-6539-4819-9ebf-b876a681e4ff/implementation_plan.md) 리뷰 완료)
+- [x] 작업 디렉토리 생성 (`C:\Users\TEHERAN\.gemini\antigravity\scratch\column_generator`)
+- [x] 파이썬 가상환경 설정 및 필요 패키지(requirements.txt) 설치
+
+## 2. 데이터 수집 및 전처리 모듈 (Data Ingestion)
+- [ ] URL 텍스트 추출기 작성 (블로그 스크래핑용)
+- [ ] 텍스트 전처리 및 Chunking 로직 구현
+- [ ] 로컬 Vector DB (ChromaDB 등) 연동 및 텍스트 임베딩 저장 로직 구현
+
+## 3. 페르소나 프롬프트 엔진 구현 (Persona Engine)
+- [ ] 5인 변리사별 (윤웅채, 김신연, 이상담, 김봉근, 백상희) 성향 분석 및 프롬프트 기본 템플릿 작성
+- [ ] RAG(Retrieval-Augmented Generation) 파이프라인 구축 (Vector DB에서 관련 문체 레퍼런스 검색)
+- [ ] LLM API 연동 클래스 작성 (OpenAI / Claude 등)
+
+## 4. 웹 UI 구현 (Streamlit)
+- [ ] 기본 레이아웃 및 디자인 (사이드바, 입력창, 결과창)
+- [ ] 데이터 수집기(블로그 링크 입력 폼) UI 구현
+- [ ] 칼럼 생성 실행 및 결과 표시 UI 구현
+
+## 5. 테스트 및 검증
+- [x] 샘플 블로그 링크를 이용한 변리사 DB 생성 테스트
+- [x] 시나리오별 칼럼 생성 및 문체 모방도 테스트 (UI 및 모듈은 정상 동작, Anthropic API Key 권한 문제 진행 중)
+- [ ] `walkthrough.md` 작성 및 최종 승인

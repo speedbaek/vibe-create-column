@@ -1,0 +1,14 @@
+# Task: Test Column Generation in Streamlit App
+
+## Checklist
+- [x] Open http://localhost:8505
+- [x] Select '윤웅채 변리사' from sidebar
+- [x] Enter topic: '3 Key Reasons Why Small Business Owners Should Register Trademarks First and Protection Strategies'
+- [x] Click '🚀 칼럼 생성 시작'
+- [x] Wait for generation (30-40 seconds)
+- [x] Verify output and check for 404 error
+- [ ] Report results
+
+**Findings:**
+- Encountered a 404 error: `Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3-7-sonnet-20250219'}, 'request_id': '...'}`
+- The model `claude-3-7-sonnet-20250219` was not found. This might be because the API key does not have access to Claude 3.7 yet or the model name is incorrect.

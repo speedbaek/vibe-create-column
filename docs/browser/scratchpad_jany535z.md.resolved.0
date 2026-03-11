@@ -1,0 +1,10 @@
+# Progress Table
+| Step | Action | Status | Notes |
+| :--- | :--- | :--- | :--- |
+| 1 | Navigate to http://localhost:8505 | Not Started | |
+| 2 | Select '윤웅채 변리사' from sidebar | Not Started | |
+| 3 | Enter topic in text area | Not Started | |
+| 4 | Click '🚀 칼럼 생성 시작' | Not Started | |
+| 5 | Wait for generation (30-40s) | Not Started | |
+| 6 | Verify rendering and check for 404 | Not Started | |
+| 7 | Summarize findings | Not Started | |

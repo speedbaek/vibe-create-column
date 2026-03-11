@@ -1,0 +1,42 @@
+<current_dom_explanation>
+This is a temporary snapshot of the current page's DOM structure. The DOM will change if you navigate to or interact with another page. Use a tool like browser_get_dom to capture and preserve the DOM in your trajectory if needed for later reference.
+</current_dom_explanation>
+<current_dom>
+[0] (84,65)<button aria-label='Fullscreen' class='st-emotion-cache-18ac3gt etjibo420' />
+⚙️ 시스템 설정
+1. 페르소나 선택
+[1] (120,300)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	글을 작성할 변리사를 선택하세요:
+[2] (120,328)<div  />
+	[3] (120,328)<div  />
+		[4] (109,328)<div  />
+			[5] (63,328)<div >윤웅채 변리사 />
+			[6] (101,328)<div  />
+				[7] (101,328)<input aria-label='Selected 윤웅채 변리사. 글을 작성할 변리사를 선택하세요:' class='st-ae st-af st-cd st-ah st-ai st-aj st-b6 st-ce st-d9 st-bq st-cg st-bw st-bx st-by st-bz st-c0 st-bu st-c1 st-c2 st-c3 st-bo st-c4 st-c5 st-c6 st-c7 st-c8 st-ch' role='combobox' />
+		[8] (210,328)<div  />
+2. DB 상태
+윤웅채 변리사의 학습 DB가 없습니다.
+일반 톤으로 작성됩니다.
+💡
+사용 팁:
+구체적인 키워드나 상황을 입력할수록 더 자연스러운 칼럼이 생성됩니다.
+[9] (241,500)<div  />
+	[10] (241,500)<div  />
+[11] (937,23)<button class='st-emotion-cache-egm30d etjibo414' />
+	[12] (937,23)<div  />
+		[13] (937,23)<span >Deploy />
+[14] (974,23)<span  />
+	[15] (974,23)<button aria-label='Main menu' class='st-emotion-cache-1aplgmp etjibo415' />
+📝 특허법인 AI 칼럼 자동 생성기
+선택한 변리사의 **과거 문체와 성향(페르소나)**을 학습하여 완벽한 전문가 칼럼을 작성합니다.
+[16] (620,199)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	✍️ 작성할 칼럼의 주제나 키워드를 상세히 입력하세요:
+[17] (620,239)<textarea aria-label='✍️ 작성할 칼럼의 주제나 키워드를 상세히 입력하세요:' class='st-ak st-bv st-dl st-dm st-dn st-do st-bw st-by st-bx st-bz st-c1 st-am st-dp st-bq st-au st-dq st-dr st-ds st-dt st-du st-dk st-af st-ag st-ah st-ai st-aj st-b6 st-ch st-dv st-dw st-dx st-dy st-dz' id='text_area_1' placeholder='예: 스타트업이 초기 단계에서 상표권을 반드시 먼저 출원해야 하는 이유와 실제 분쟁 사례' />
+[18] (362,299)<button class='st-emotion-cache-5qfegl etjibo42' />
+	[19] (362,299)<div  />
+		[20] (362,299)<span  />
+			[21] (362,299)<div  />
+				[22] (362,299)<p >🚀 칼럼 생성 시작 />
+엔진 모듈을 불러오지 못했습니다. 환경 설정을 확인해 주세요.
+
+</current_dom>

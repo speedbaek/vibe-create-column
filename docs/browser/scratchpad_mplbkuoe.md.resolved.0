@@ -1,0 +1,8 @@
+# Task Plan
+- [x] Navigate to http://localhost:8504
+- [x] Select '윤웅채 변리사' from sidebar (Already selected)
+- [ ] Enter topic: '3 Key Reasons Why Small Business Owners Should Register Trademarks First and Protection Strategies'
+- [ ] Click '🚀 칼럼 생성 시작'
+- [ ] Wait 30-40 seconds for generation
+- [ ] Verify generated column renders
+- [ ] Summarize results

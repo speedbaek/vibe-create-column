@@ -1,0 +1,41 @@
+<current_dom_explanation>
+This is a temporary snapshot of the current page's DOM structure. The DOM will change if you navigate to or interact with another page. Use a tool like browser_get_dom to capture and preserve the DOM in your trajectory if needed for later reference.
+</current_dom_explanation>
+<current_dom>
+[0] (84,71)<button aria-label='Fullscreen' class='st-emotion-cache-18ac3gt etjibo420' />
+⚙️ 시스템 설정
+1. 페르소나 선택
+[1] (120,326)<label class='st-emotion-cache-1s2v671 e1kt9bl70' />
+	글을 작성할 변리사를 선택하세요:
+[2] (120,357)<div  />
+	[3] (120,357)<div  />
+		[4] (109,357)<div  />
+			[5] (63,357)<div >윤웅채 변리사 />
+			[6] (101,357)<div  />
+				[7] (101,357)<input aria-label='Selected 윤웅채 변리사. 글을 작성할 변리사를 선택하세요:' class='st-ae st-af st-ck st-d4 st-ai st-aj st-cr st-e3 st-f5 st-dv st-c8 st-c3 st-c4 st-c5 st-c6 st-ay st-dy st-cb st-ar st-as st-b6 st-b5 st-bw st-by st-bv st-bx st-e5' role='combobox' />
+		[8] (210,357)<div  />
+2. DB 상태
+윤웅채 변리사의 맞춤 학습 데이터가 적용되었습니다.
+💡
+사용 팁:
+구체적인 키워드나 상황을 입력할수록 더 자연스러운 칼럼이 생성됩니다.
+[9] (938,26)<button class='st-emotion-cache-egm30d etjibo414' />
+	[10] (938,26)<div  />
+		[11] (938,26)<span >Deploy />
+[12] (975,26)<span  />
+	[13] (975,25)<button aria-label='Main menu' class='st-emotion-cache-1aplgmp etjibo415' />
+[14] (620,500)<section class='stMain st-emotion-cache-4rsbii e1td4qo61' scrollable='true' />
+	잘 관리된 히스토리는 오히려 내 특허의 권리 범위를 명확하게 해주고, 분쟁 상황에서 내 주장을 뒷받침하는 강력한 근거가 되기도 합니다.
+	심사 과정에서 심사관과의 논의를 통해 권리 범위를 명확히 확립해 놓으면, 경쟁사가 침해 여부를 다투는 상황에서도 "이런 이유로 이 범위까지 보호받는다"는 논거를 분명하게 제시할 수 있습니다.
+	결국, 히스토리를 어떻게 쌓느냐는 전적으로 담당 변리사의 역량과 전략에 달려 있습니다.
+	맺음말
+	특허는 등록이 끝이 아닙니다.
+	등록증 한 장을 받는 것보다, 그 특허가 실제 사업 현장에서 얼마나 강력하게 작동하는지가 훨씬 더 중요합니다. 그리고 그 힘의 상당 부분은, 심사 과정에서 쌓인 히스토리에 의해 결정됩니다.
+	저는 출원 단계부터 등록 이후의 분쟁 가능성까지 고려하여 전략을 세웁니다. 단순히 등록 성공율만을 높이는 것이 아니라, 등록된 특허가 실제로 여러분의 사업을 지켜줄 수 있도록 하는 것이 저의 목표입니다.
+	특허 히스토리 관리, 혼자서 감당하기 어렵습니다. 경험 많은 변리사와 함께 처음부터 제대로 설계하십시오. 그것이 나중에 수천만 원, 수억 원의 손실을 막는 가장 현명한 투자입니다.
+	궁금하신 점이 있으시다면, 편하게 연락 주셔도 좋습니다.
+최선의 방향을 함께 찾아 드리겠습니다.
+	감사합니다.
+	[15] (616,839)<button id='copyBtn_0'>📋 이 과거 칼럼 복사하기 />
+
+</current_dom>

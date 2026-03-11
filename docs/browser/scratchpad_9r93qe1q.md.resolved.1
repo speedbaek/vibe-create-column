@@ -1,0 +1,16 @@
+# Task: Functional test of the Patent Attorney Column Generator
+
+## Plan
+1. [x] Navigate to http://localhost:8502
+2. [x] Select '윤웅채 변리사' (already selected)
+3. [x] Enter topic: '3 Key Reasons Why Small Business Owners Should Register Trademarks First and Protection Strategies'
+4. [x] Click '🚀 칼럼 생성 시작'
+5. [ ] Wait for generation (30-40s) - **FAILED: Error message appeared**
+6. [ ] Verify results and report
+
+## Findings
+- URL http://localhost:8502 is accessible.
+- '윤웅채 변리사' is selected by default but UI says DB is missing.
+- After clicking '🚀 칼럼 생성 시작', an error appeared: "엔진 모듈을 불러오지 못했습니다. 환경 설정을 확인해 주세요." (Failed to load engine module. Please check environment settings.)
+- Streamlit app on port 8502 might be misconfigured or missing dependencies/API keys.
+- Checking port 8501 as a backup.
