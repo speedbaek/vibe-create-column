@@ -8,7 +8,7 @@ import os
 import json
 from datetime import datetime
 
-from src.engine import generate_column_with_validation, generate_column
+from src.engine import generate_column_with_validation, generate_column, generate_hooking_title
 from src.similarity import check_similarity
 from src.formatter import format_column_html, format_column_preview
 
@@ -17,14 +17,19 @@ def generate_preview(topic, persona_id, persona_name,
                      model_id="claude-sonnet-4-6", temperature=0.7,
                      include_images=False, user_image_paths=None,
                      image_count=4, thumbnail_preset=None,
-                     use_dalle=None):
+                     auto_title=True, title_count=3):
     """
     키워드로 칼럼 생성 + 유사도 검증 + HTML 포맷팅
+
+    Args:
+        auto_title: True면 후킹 제목 자동 생성
+        title_count: 제목 후보 개수
 
     Returns:
         dict: {
             'success': bool,
             'title': str,
+            'title_candidates': list[str],
             'raw_content': str,
             'html_content': str,
             'preview_html': str,
@@ -34,7 +39,20 @@ def generate_preview(topic, persona_id, persona_name,
             'image_data': dict or None,
         }
     """
-    # 1. 칼럼 생성 (유사도 검증 포함)
+    # 1. 후킹 제목 생성 (본문 생성과 독립적으로 먼저 실행)
+    title_candidates = []
+    if auto_title:
+        try:
+            title_candidates = generate_hooking_title(
+                topic=topic,
+                persona_id=persona_id,
+                model_id=model_id,
+                count=title_count,
+            )
+        except Exception:
+            title_candidates = []
+
+    # 2. 칼럼 생성 (유사도 검증 포함)
     result = generate_column_with_validation(
         persona_id=persona_id,
         persona_name=persona_name,
@@ -45,13 +63,16 @@ def generate_preview(topic, persona_id, persona_name,
 
     content = result["content"]
 
-    # 2. 제목 추출 (첫 번째 # 헤딩 또는 첫 줄)
-    title = topic
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            title = stripped.lstrip("#").strip()
-            break
+    # 3. 제목 결정: 후킹 제목 첫 번째 후보 > 본문 헤딩 > 키워드
+    if title_candidates:
+        title = title_candidates[0]
+    else:
+        title = topic
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("# "):
+                title = stripped.lstrip("#").strip()
+                break
 
     # 3. 이미지 처리
     image_data = None
@@ -63,14 +84,12 @@ def generate_preview(topic, persona_id, persona_name,
                 content=content,
                 image_count=image_count or 4,
                 user_image_paths=user_image_paths,
-                use_dalle=use_dalle,
             )
             if thumbnail_preset:
                 thumb = generate_thumbnail(
                     topic=topic,
                     subtitle="",
                     preset=thumbnail_preset,
-                    use_dalle=use_dalle,
                 )
                 image_data["thumbnail"] = thumb
         except Exception:
@@ -90,6 +109,7 @@ def generate_preview(topic, persona_id, persona_name,
     return {
         "success": True,
         "title": title,
+        "title_candidates": title_candidates,
         "raw_content": content,
         "html_content": html_content,
         "preview_html": preview_html,

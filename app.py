@@ -11,7 +11,7 @@ load_dotenv(override=True)
 
 # 엔진 모듈 로드
 try:
-    from src.engine import generate_column, generate_column_stream
+    from src.engine import generate_column, generate_column_stream, generate_hooking_title
     ENGINE_LOADED = True
 except ImportError as e:
     ENGINE_LOADED = False
@@ -197,13 +197,11 @@ with st.sidebar:
     include_images = st.toggle("이미지 포함", value=False)
 
     if include_images:
-        use_dalle = st.toggle("DALL-E 3 사용", value=bool(openai_key),
-                              help="OpenAI API 키 필요. OFF면 플레이스홀더 이미지")
         THUMB_PRESETS = {
-            "dark_minimal": "다크 미니멀",
-            "light_clean": "라이트 클린",
-            "warm_professional": "웜 프로페셔널",
-            "blue_corporate": "블루 기업형",
+            "dark_minimal": "🌑 다크 미니멀",
+            "light_clean": "☀️ 라이트 클린",
+            "warm_professional": "🔶 웜 프로페셔널",
+            "blue_corporate": "🔷 블루 기업형",
         }
         thumbnail_preset = st.selectbox(
             "썸네일 스타일",
@@ -212,7 +210,6 @@ with st.sidebar:
         )
         image_count = st.slider("본문 이미지 수", 3, 7, 4)
     else:
-        use_dalle = False
         thumbnail_preset = None
         image_count = 0
 
@@ -338,7 +335,6 @@ with tab1:
                             user_image_paths=uploaded_image_paths if uploaded_image_paths else None,
                             image_count=image_count if include_images else None,
                             thumbnail_preset=thumbnail_preset,
-                            use_dalle=use_dalle if include_images else False,
                         )
                         result["publish_mode"] = item.get("publish_mode", "immediate")
                         st.session_state.generated_results.append(result)
@@ -370,6 +366,33 @@ with tab1:
                 expanded=(idx == 0),
             ):
                 if success:
+                    # 제목 선택 UI
+                    candidates = result.get("title_candidates", [])
+                    if candidates:
+                        st.markdown("##### 제목 후보 (클릭하여 선택)")
+                        title_options = candidates.copy()
+                        # 본문에서 추출한 제목도 옵션에 추가
+                        for line in result.get("raw_content", "").split("\n"):
+                            stripped = line.strip()
+                            if stripped.startswith("# "):
+                                body_title = stripped.lstrip("#").strip()
+                                if body_title not in title_options:
+                                    title_options.append(body_title)
+                                break
+
+                        selected_title = st.radio(
+                            "발행에 사용할 제목:",
+                            options=title_options,
+                            index=0,
+                            key=f"title_select_{idx}",
+                            label_visibility="collapsed",
+                        )
+                        # 선택한 제목을 result에 반영
+                        st.session_state.generated_results[idx]["title"] = selected_title
+                        st.caption(f"선택된 제목: **{selected_title}**")
+                    else:
+                        st.info(f"제목: **{title}**")
+
                     preview_tab, text_tab, info_tab = st.tabs(["미리보기", "텍스트", "정보"])
 
                     with preview_tab:
@@ -385,6 +408,8 @@ with tab1:
                         st.write(f"- 생성 시도: **{result.get('attempts', 0)}회**")
                         st.write(f"- 유사도: **{sim.get('max_doc_similarity', 0):.3f}** (임계값: 0.3)")
                         st.write(f"- 유사도 통과: {'✅' if sim.get('passed', False) else '⚠️'}")
+                        if candidates:
+                            st.write(f"- 제목 후보: **{len(candidates)}개** 생성됨")
                 else:
                     st.error(f"생성 실패: {result.get('error', '알 수 없는 오류')}")
 
@@ -499,7 +524,38 @@ with tab2:
         placeholder="예: 스타트업이 초기 단계에서 상표권을 반드시 먼저 출원해야 하는 이유",
     )
 
-    if st.button("🚀 칼럼 생성", key="single_gen"):
+    col_gen, col_title = st.columns([3, 1])
+    with col_gen:
+        gen_clicked = st.button("🚀 칼럼 생성", key="single_gen", use_container_width=True)
+    with col_title:
+        title_only = st.button("📝 제목만 생성", key="title_only_gen", use_container_width=True)
+
+    # 제목만 생성
+    if title_only:
+        if not topic.strip():
+            st.error("주제를 입력해 주세요.")
+        elif not ENGINE_LOADED:
+            st.error("엔진 모듈을 불러오지 못했습니다.")
+        else:
+            with st.spinner("후킹 제목 생성 중..."):
+                try:
+                    titles = generate_hooking_title(
+                        topic=topic.strip(),
+                        persona_id=selected_persona_id,
+                        model_id=selected_model,
+                        count=5,
+                    )
+                    if titles:
+                        st.markdown("#### 생성된 제목 후보")
+                        for i, t in enumerate(titles):
+                            st.write(f"**{i+1}.** {t}")
+                    else:
+                        st.warning("제목 생성 결과가 없습니다.")
+                except Exception as e:
+                    st.error(f"제목 생성 오류: {type(e).__name__}: {e}")
+
+    # 칼럼 생성
+    if gen_clicked:
         if not topic.strip():
             st.error("주제를 입력해 주세요.")
         elif not ENGINE_LOADED:
@@ -507,7 +563,22 @@ with tab2:
         else:
             try:
                 start_time = time.time()
+
+                # 후킹 제목 먼저 생성
                 st.markdown(f"**'{selected_persona_name}'** 문체로 작성 중...")
+                title_container = st.empty()
+                with st.spinner("후킹 제목 생성 중..."):
+                    try:
+                        hooking_titles = generate_hooking_title(
+                            topic=topic.strip(),
+                            persona_id=selected_persona_id,
+                            model_id=selected_model,
+                            count=3,
+                        )
+                        if hooking_titles:
+                            title_container.markdown("**생성된 제목:** " + " | ".join(hooking_titles))
+                    except Exception:
+                        hooking_titles = []
 
                 result_container = st.empty()
                 full_text = ""
@@ -523,6 +594,13 @@ with tab2:
                 st.success(f"✅ 완료! ({elapsed:.1f}초, {len(full_text)}자)")
 
                 save_to_history(selected_persona_id, topic, full_text)
+
+                # 제목 선택
+                if hooking_titles:
+                    st.markdown("---")
+                    st.markdown("#### 제목 선택")
+                    for i, t in enumerate(hooking_titles):
+                        st.write(f"**{i+1}.** {t}")
 
                 # 유사도 검증
                 if ORCHESTRATOR_LOADED:

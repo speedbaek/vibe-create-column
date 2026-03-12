@@ -8,6 +8,7 @@
 """
 
 import os
+import re
 import json
 import glob
 import random
@@ -17,6 +18,7 @@ import anthropic
 BASE_PROMPT_PATH = "config/base_prompt.md"
 HUMAN_STYLE_PATH = "config/human_style_rules.md"
 ANTI_AI_PATH = "config/anti_ai_detection.md"
+TITLE_STYLE_PATH = "config/title_style.md"
 PERSONAS_DIR = "config/personas"
 PERSONA_DB_DIR = "persona_db"
 
@@ -330,6 +332,106 @@ def generate_column_with_validation(persona_id, persona_name, topic,
         'similarity_check': sim_result,
         'success': False
     }
+
+
+def load_title_style():
+    """제목 스타일 가이드 로드"""
+    try:
+        with open(TITLE_STYLE_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "(제목 스타일 가이드 파일 없음)"
+
+
+def _get_sample_titles(persona_id, count=30):
+    """페르소나 DB에서 실제 제목 샘플 추출 (2020~2021 상반기)"""
+    db_path = os.path.join(PERSONA_DB_DIR, persona_id)
+    json_files = glob.glob(os.path.join(db_path, "*.json"))
+
+    all_titles = []
+    for jf in json_files:
+        try:
+            with open(jf, 'r', encoding='utf-8') as f:
+                posts = json.load(f)
+                if isinstance(posts, list):
+                    for post in posts:
+                        title = post.get('title', '')
+                        if title and not title.startswith('['):  # [소개], [추천] 등 공지글 제외
+                            all_titles.append(title)
+        except (json.JSONDecodeError, IOError):
+            continue
+
+    # 중복 제거 후 랜덤 샘플링
+    unique_titles = list(set(all_titles))
+    sample = random.sample(unique_titles, min(count, len(unique_titles)))
+    return sample
+
+
+def generate_hooking_title(topic, persona_id="yun_ung_chae",
+                            model_id="claude-sonnet-4-6",
+                            count=3):
+    """
+    키워드/주제로부터 후킹 강한 블로그 제목 생성
+
+    Args:
+        topic: 키워드 또는 주제 (예: "상표등록", "스타트업 특허")
+        persona_id: 페르소나 ID
+        model_id: AI 모델
+        count: 생성할 제목 후보 수 (기본 3개)
+
+    Returns:
+        list[str]: 생성된 제목 후보 리스트
+    """
+    client = _get_client()
+    title_style = load_title_style()
+    sample_titles = _get_sample_titles(persona_id, count=30)
+
+    sample_text = "\n".join(f"- {t}" for t in sample_titles)
+
+    prompt = f"""당신은 네이버 블로그 제목을 작성하는 전문가입니다.
+아래의 스타일 가이드와 실제 제목 예시를 참고하여, 주어진 키워드/주제에 맞는 블로그 제목을 {count}개 생성하세요.
+
+## 제목 스타일 가이드
+{title_style}
+
+## 실제 블로그 제목 예시 (이 문체와 패턴을 참고)
+{sample_text}
+
+## 키워드/주제
+{topic}
+
+## 생성 규칙
+1. 위 스타일 가이드의 10가지 패턴 중 서로 다른 패턴을 사용하세요.
+2. 각 제목은 30~50자 사이여야 합니다.
+3. 실제 변리사가 직접 쓴 것처럼 자연스러운 한국어를 사용하세요.
+4. AI가 쓴 느낌이 나는 표현은 절대 사용하지 마세요.
+5. 키워드를 제목 앞부분에 자연스럽게 배치하세요.
+
+## 출력 형식
+제목만 한 줄에 하나씩 출력하세요. 번호, 따옴표, 설명 없이 제목 텍스트만 출력합니다.
+"""
+
+    message = client.messages.create(
+        model=model_id,
+        max_tokens=500,
+        temperature=0.9,
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    raw_text = message.content[0].text.strip()
+    titles = []
+    for line in raw_text.split("\n"):
+        line = line.strip()
+        # 번호 접두사 제거 (1. 2. 3. 또는 1) 2) 3))
+        line = re.sub(r'^[\d]+[.)]\s*', '', line)
+        # 따옴표 제거
+        line = line.strip('"').strip("'").strip()
+        if line and len(line) >= 10:
+            titles.append(line)
+
+    return titles[:count]
 
 
 if __name__ == "__main__":
