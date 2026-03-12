@@ -47,7 +47,7 @@ def _gen_id():
     return f"SE-{uuid.uuid4()}"
 
 
-def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url=None, background_color=None):
+def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url=None):
     style = {
         "fontColor": font_color,
         "fontFamily": "system",
@@ -57,8 +57,6 @@ def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url
         style["bold"] = True
     if font_size:
         style["fontSize"] = font_size
-    if background_color:
-        style["fontBackgroundColor"] = background_color
     node = {
         "id": _gen_id(),
         "value": value,
@@ -71,8 +69,8 @@ def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url
 
 
 # ── 색상/하이라이트 설정 ─────────────────────────────
-BOLD_COLOR = "#E53935"       # 빨간색 볼드
-HIGHLIGHT_BG = "#FFF3CD"     # 노란색 배경 하이라이트
+BOLD_COLOR = "#E53935"       # **bold** 키워드 → 빨간색
+HIGHLIGHT_COLOR = "#1565C0"  # 하이라이트 문장 → 파란색 볼드 (fontBackgroundColor 미지원)
 HIGHLIGHT_MAX = 6
 
 _HIGHLIGHT_ENDINGS = re.compile(
@@ -219,7 +217,7 @@ def _heading_quote_component(text, font_size="20"):
     }
 
 
-def _parse_inline(text, background_color=None):
+def _parse_inline(text):
     """인라인 마크다운 파싱: **bold** → 빨간색 볼드, [text](url) → 파란색 링크"""
     nodes = []
     pattern = r'\*\*(.+?)\*\*|\[([^\]]+)\]\((https?://[^\)]+)\)'
@@ -228,19 +226,44 @@ def _parse_inline(text, background_color=None):
     for match in re.finditer(pattern, text):
         before = text[last_end:match.start()]
         if before:
-            nodes.append(_text_node(before, background_color=background_color))
+            nodes.append(_text_node(before))
         if match.group(1):
             # **bold** → 빨간색 볼드
-            nodes.append(_text_node(match.group(1), bold=True, font_color=BOLD_COLOR, background_color=background_color))
+            nodes.append(_text_node(match.group(1), bold=True, font_color=BOLD_COLOR))
         elif match.group(2) and match.group(3):
-            nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3), background_color=background_color))
+            nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3)))
         last_end = match.end()
 
     remaining = text[last_end:]
     if remaining:
-        nodes.append(_text_node(remaining, background_color=background_color))
+        nodes.append(_text_node(remaining))
     if not nodes:
-        nodes.append(_text_node("", background_color=background_color))
+        nodes.append(_text_node(""))
+    return nodes
+
+
+def _parse_inline_highlight(text):
+    """하이라이트 문장 파싱: 전체 파란색 볼드, **bold** 부분은 빨간색 유지"""
+    nodes = []
+    pattern = r'\*\*(.+?)\*\*|\[([^\]]+)\]\((https?://[^\)]+)\)'
+    last_end = 0
+
+    for match in re.finditer(pattern, text):
+        before = text[last_end:match.start()]
+        if before:
+            nodes.append(_text_node(before, bold=True, font_color=HIGHLIGHT_COLOR))
+        if match.group(1):
+            # **bold** → 빨간색 볼드 유지
+            nodes.append(_text_node(match.group(1), bold=True, font_color=BOLD_COLOR))
+        elif match.group(2) and match.group(3):
+            nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3)))
+        last_end = match.end()
+
+    remaining = text[last_end:]
+    if remaining:
+        nodes.append(_text_node(remaining, bold=True, font_color=HIGHLIGHT_COLOR))
+    if not nodes:
+        nodes.append(_text_node("", bold=True, font_color=HIGHLIGHT_COLOR))
     return nodes
 
 
@@ -361,9 +384,9 @@ def markdown_to_se_components(text, image_urls=None):
             current_paragraphs.append(_paragraph(nodes))
             continue
 
-        # 일반 텍스트 + 하이라이트 (수정 3)
+        # 일반 텍스트 + 하이라이트 (파란색 볼드)
         if highlight_count < HIGHLIGHT_MAX and _should_highlight(stripped):
-            nodes = _parse_inline(stripped, background_color=HIGHLIGHT_BG)
+            nodes = _parse_inline_highlight(stripped)
             highlight_count += 1
         else:
             nodes = _parse_inline(stripped)
