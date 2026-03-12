@@ -27,8 +27,20 @@ chroma_db/
 # VS Code
 .vscode/
 
-# Test files
+# Test/Debug files
 test_output.txt
+debug_*.py
+debug_*.txt
+diag_*.py
+explore_*.txt
+publish_*_output.txt
+debug_screenshots*/
+
+# Chrome debug profile
+chrome_debug_profile/
 
 # Claude Code
 .claude/
+
+# bkit
+.bkit/
