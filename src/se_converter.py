@@ -5,9 +5,10 @@ SmartEditor ONE Document Data 변환기
 
 참고글 구조 기반:
 - 문단 그룹핑 + ZWS(​)로 간격 생성
-- 이미지는 소제목 앞에 배치, 작은 크기
-- URL → oglink 링크 미리보기
+- 이미지는 소제목 앞에 배치 (이미지 텍스트 = 바로 아래 소제목)
+- URL → oglink 링크 미리보기 (제목/설명 포함)
 - 따옴표 문장 → quote 컴포넌트
+- **bold** → 빨간색 볼드, 중요 문장 → 배경 하이라이트
 """
 
 import re
@@ -16,6 +17,30 @@ import uuid
 
 # Zero-Width Space (문단 간격용)
 ZWS = "\u200B"
+
+# ── 내부 링크 메타데이터 (oglink 제목/설명 표시용) ──────────
+KNOWN_LINKS = {
+    "222176762007": {
+        "title": "포기도, 실패도 없다. 변리사 윤웅채 철학",
+        "description": "마음껏 의심하십시오. 19년차 변리사의 업무 철학을 소개합니다.",
+    },
+    "222176805543": {
+        "title": "특허법인 테헤란, 진짜 고객의 추천",
+        "description": "실제 고객분들의 후기와 추천을 확인하실 수 있습니다.",
+    },
+    "222180460017": {
+        "title": "컨설팅 접수 방법 (비용없는 1차상담 신청)",
+        "description": "무료 1차 상담 신청 방법을 안내해 드립니다.",
+    },
+}
+
+
+def _lookup_link_meta(url):
+    """내부 링크 URL에서 제목/설명 조회"""
+    for log_no, meta in KNOWN_LINKS.items():
+        if log_no in url:
+            return meta["title"], meta["description"]
+    return "", ""
 
 
 def _gen_id():
@@ -45,8 +70,9 @@ def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url
     return node
 
 
-# ── 하이라이트 판별 (수정 3) ─────────────────────────
-HIGHLIGHT_BG = "#FFF3CD"
+# ── 색상/하이라이트 설정 ─────────────────────────────
+BOLD_COLOR = "#E53935"       # 빨간색 볼드
+HIGHLIGHT_BG = "#FFF3CD"     # 노란색 배경 하이라이트
 HIGHLIGHT_MAX = 6
 
 _HIGHLIGHT_ENDINGS = re.compile(
@@ -150,15 +176,22 @@ def _image_component(image_source, alt="", width=600):
 
 
 def _oglink_component(url, title="", description=""):
-    """OG Link 컴포넌트 - 링크 미리보기 카드"""
+    """OG Link 컴포넌트 - 링크 미리보기 카드 (내부 링크 메타데이터 자동 조회)"""
     domain = ""
     if "://" in url:
         domain = url.split("://")[1].split("/")[0]
+
+    # 내부 링크 메타데이터 자동 조회
+    if not title:
+        title, description = _lookup_link_meta(url)
+    if not title:
+        title = domain
+
     return {
         "id": _gen_id(),
         "layout": "default",
         "link": url,
-        "title": title or domain,
+        "title": title,
         "description": description,
         "domain": domain,
         "video": False,
@@ -187,7 +220,7 @@ def _heading_quote_component(text, font_size="20"):
 
 
 def _parse_inline(text, background_color=None):
-    """인라인 마크다운 파싱: **bold**, [text](url)"""
+    """인라인 마크다운 파싱: **bold** → 빨간색 볼드, [text](url) → 파란색 링크"""
     nodes = []
     pattern = r'\*\*(.+?)\*\*|\[([^\]]+)\]\((https?://[^\)]+)\)'
     last_end = 0
@@ -197,7 +230,8 @@ def _parse_inline(text, background_color=None):
         if before:
             nodes.append(_text_node(before, background_color=background_color))
         if match.group(1):
-            nodes.append(_text_node(match.group(1), bold=True, background_color=background_color))
+            # **bold** → 빨간색 볼드
+            nodes.append(_text_node(match.group(1), bold=True, font_color=BOLD_COLOR, background_color=background_color))
         elif match.group(2) and match.group(3):
             nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3), background_color=background_color))
         last_end = match.end()
@@ -235,8 +269,8 @@ def markdown_to_se_components(text, image_urls=None):
     img_before_line = {}  # line_index → image_source (URL 문자열 또는 네이티브 dict)
     img_used_indices = set()  # 사용된 image_urls 인덱스
     if image_urls and heading_line_indices:
-        # 첫 번째 소제목은 건너뛰고, 2번째부터 이미지 배치
-        targets = heading_line_indices[1:]
+        # 이미지와 소제목 1:1 매핑 (이미지 텍스트 = 바로 아래 소제목)
+        targets = heading_line_indices
         for i, img_source in enumerate(image_urls):
             if i < len(targets):
                 img_before_line[targets[i]] = img_source

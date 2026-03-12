@@ -55,10 +55,14 @@ def _apply_highlight(html_text):
 
 
 def _inline_format(text):
-    """인라인 마크다운 포맷팅 (bold, italic)"""
+    """인라인 마크다운 포맷팅 (bold → 빨간색, italic)"""
     safe = html.escape(text)
-    # **bold**
-    safe = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", safe)
+    # **bold** → 빨간색 볼드
+    safe = re.sub(
+        r"\*\*(.+?)\*\*",
+        r'<b style="color: #E53935;">\1</b>',
+        safe,
+    )
     # *italic*
     safe = re.sub(r"\*(.+?)\*", r"<em>\1</em>", safe)
     return safe
@@ -134,10 +138,10 @@ def format_for_smarteditor(text, image_urls=None):
         if s.startswith("## ") or s.startswith("### "):
             heading_indices.append(i)
 
-    # 이미지 → 소제목 앞에 매핑 (첫 소제목 건너뜀)
+    # 이미지 → 소제목 앞에 매핑 (1:1 매핑: 이미지 텍스트 = 바로 아래 소제목)
     img_before_line = {}
     if image_urls and heading_indices:
-        targets = heading_indices[1:]  # 2번째 소제목부터
+        targets = heading_indices
         for idx, img_url in enumerate(image_urls):
             if idx < len(targets):
                 img_before_line[targets[idx]] = img_url
