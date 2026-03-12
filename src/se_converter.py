@@ -22,7 +22,7 @@ def _gen_id():
     return f"SE-{uuid.uuid4()}"
 
 
-def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url=None):
+def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url=None, background_color=None):
     style = {
         "fontColor": font_color,
         "fontFamily": "system",
@@ -32,6 +32,8 @@ def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url
         style["bold"] = True
     if font_size:
         style["fontSize"] = font_size
+    if background_color:
+        style["fontBackgroundColor"] = background_color
     node = {
         "id": _gen_id(),
         "value": value,
@@ -41,6 +43,29 @@ def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url
     if link_url:
         node["link"] = {"url": link_url, "@ctype": "urlLink"}
     return node
+
+
+# ── 하이라이트 판별 (수정 3) ─────────────────────────
+HIGHLIGHT_BG = "#FFF3CD"
+HIGHLIGHT_MAX = 6
+
+_HIGHLIGHT_ENDINGS = re.compile(
+    r'(하십시오|해야\s*합니다|하시기\s*바랍니다|하셔야|해주세요|하세요|해야만|필수입니다)[.!]?\s*$'
+)
+_HIGHLIGHT_KEYWORDS = re.compile(
+    r'(중요|핵심|반드시|절대|꼭|필수|주의|경고|명심)'
+)
+
+
+def _should_highlight(text):
+    """하이라이트 대상 여부 판별"""
+    if _HIGHLIGHT_ENDINGS.search(text):
+        return True
+    if _HIGHLIGHT_KEYWORDS.search(text):
+        return True
+    if '**' in text:
+        return True
+    return False
 
 
 def _paragraph(nodes, align="justify"):
@@ -152,16 +177,16 @@ def _quote_component(text):
 
 
 def _heading_quote_component(text, font_size="20"):
-    """소제목용 인용구 컴포넌트 - 좌측 막대바 + 큰 글씨 볼드"""
+    """소제목용 인용구 컴포넌트 - 좌측 막대바 + 큰 글씨 볼드 + 가운데 정렬"""
     return {
         "id": _gen_id(),
         "layout": "default",
-        "value": [_paragraph([_text_node(text, bold=True, font_color="#333333", font_size=font_size)])],
+        "value": [_paragraph([_text_node(text, bold=True, font_color="#333333", font_size=font_size)], align="center")],
         "@ctype": "quotation",
     }
 
 
-def _parse_inline(text):
+def _parse_inline(text, background_color=None):
     """인라인 마크다운 파싱: **bold**, [text](url)"""
     nodes = []
     pattern = r'\*\*(.+?)\*\*|\[([^\]]+)\]\((https?://[^\)]+)\)'
@@ -170,18 +195,18 @@ def _parse_inline(text):
     for match in re.finditer(pattern, text):
         before = text[last_end:match.start()]
         if before:
-            nodes.append(_text_node(before))
+            nodes.append(_text_node(before, background_color=background_color))
         if match.group(1):
-            nodes.append(_text_node(match.group(1), bold=True))
+            nodes.append(_text_node(match.group(1), bold=True, background_color=background_color))
         elif match.group(2) and match.group(3):
-            nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3)))
+            nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3), background_color=background_color))
         last_end = match.end()
 
     remaining = text[last_end:]
     if remaining:
-        nodes.append(_text_node(remaining))
+        nodes.append(_text_node(remaining, background_color=background_color))
     if not nodes:
-        nodes.append(_text_node(""))
+        nodes.append(_text_node("", background_color=background_color))
     return nodes
 
 
@@ -198,6 +223,7 @@ def markdown_to_se_components(text, image_urls=None):
     lines = text.split("\n")
     components = []
     current_paragraphs = []
+    highlight_count = 0  # 하이라이트 카운터
 
     # --- 이미지 배치 계산: 소제목(##) 앞에 1장씩 ---
     heading_line_indices = []
@@ -301,8 +327,12 @@ def markdown_to_se_components(text, image_urls=None):
             current_paragraphs.append(_paragraph(nodes))
             continue
 
-        # 일반 텍스트
-        nodes = _parse_inline(stripped)
+        # 일반 텍스트 + 하이라이트 (수정 3)
+        if highlight_count < HIGHLIGHT_MAX and _should_highlight(stripped):
+            nodes = _parse_inline(stripped, background_color=HIGHLIGHT_BG)
+            highlight_count += 1
+        else:
+            nodes = _parse_inline(stripped)
         current_paragraphs.append(_paragraph(nodes))
 
     # 나머지 flush

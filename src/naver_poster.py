@@ -6,9 +6,11 @@
 """
 
 import os
+import re
 import asyncio
 import subprocess
 import time
+import random
 
 EDITOR_KEY = "blogpc001"
 CDP_URL = "http://127.0.0.1:9222"
@@ -413,6 +415,149 @@ class NaverPoster:
         result = await self._publish()
         return result
 
+    # ── Human-like 발행 메서드 (수정 8) ──────────────────
+
+    async def _set_title_human(self, title):
+        """제목을 사람처럼 타이핑 (IME fallback 포함)"""
+        title_area = self.page.locator('.se-documentTitle-editView .se-text-paragraph')
+        try:
+            await title_area.click()
+        except Exception:
+            # fallback: JS로 포커스
+            await self.page.evaluate(f"""() => {{
+                SmartEditor._editors['{EDITOR_KEY}'].focusTitle();
+            }}""")
+        await asyncio.sleep(random.uniform(0.3, 0.8))
+
+        try:
+            # 방법 1: 직접 타이핑 시도
+            await self.page.keyboard.type(title, delay=random.randint(80, 150))
+        except Exception:
+            # 방법 2: insertText fallback
+            try:
+                await self.page.keyboard.insert_text(title)
+            except Exception:
+                pass
+
+        await asyncio.sleep(random.uniform(1.0, 2.0))
+
+        # 입력 검증
+        actual = await self.page.evaluate(f"""() => {{
+            var ed = SmartEditor._editors['{EDITOR_KEY}'];
+            return ed.getDocumentTitle();
+        }}""")
+
+        # 제목이 비어있으면 JS API fallback
+        if not actual or actual.strip() == '':
+            await self.page.evaluate(f"""(t) => {{
+                SmartEditor._editors['{EDITOR_KEY}'].setDocumentTitle(t);
+            }}""", title)
+
+        return {"ok": True, "title": actual or title}
+
+    async def _set_content_human(self, html_content):
+        """본문을 문단 단위로 나누어 시간차 삽입"""
+        # HTML을 블록 단위로 분리
+        chunks = re.split(r'(?<=</(?:p|div|h[1-6])>)', html_content)
+        chunks = [c.strip() for c in chunks if c.strip()]
+
+        # 첫 번째 텍스트에 포커스
+        await self.page.evaluate(f"""() => {{
+            SmartEditor._editors['{EDITOR_KEY}'].focusFirstText();
+        }}""")
+        await asyncio.sleep(random.uniform(0.5, 1.0))
+
+        # chunk별 순차 삽입
+        for i, chunk in enumerate(chunks):
+            await self.page.evaluate(f"""(c) => {{
+                SmartEditor._editors['{EDITOR_KEY}']._editingService.write(c);
+            }}""", chunk)
+
+            # 기본 딜레이: 1.5~3초
+            delay = random.uniform(1.5, 3.0)
+
+            # 30% 확률로 "생각하는 시간" 추가
+            if random.random() < 0.3:
+                delay = random.uniform(4.0, 6.0)
+
+            # 마지막 chunk는 짧게
+            if i == len(chunks) - 1:
+                delay = random.uniform(0.5, 1.0)
+
+            await asyncio.sleep(delay)
+
+        return {"ok": True, "chunks": len(chunks)}
+
+    async def _simulate_review(self):
+        """사람이 글을 훑어보는 동작 시뮬레이션"""
+        # 아래로 천천히 스크롤
+        for _ in range(random.randint(3, 5)):
+            await self.page.mouse.wheel(0, random.randint(200, 400))
+            await asyncio.sleep(random.uniform(0.8, 1.5))
+
+        await asyncio.sleep(random.uniform(1.0, 2.0))
+
+        # 맨 위로 스크롤
+        await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
+        await asyncio.sleep(random.uniform(2.0, 3.0))
+
+        # 다시 맨 아래로
+        await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
+        await asyncio.sleep(random.uniform(1.0, 2.0))
+
+    async def post_human_like(self, title, content, blog_id=None, category_no=None,
+                               use_html=True):
+        """
+        사람처럼 자연스럽게 블로그 글 발행
+
+        기존 post()와 동일한 인터페이스, 동일한 반환값.
+        차이점: 각 단계 사이에 사람 행동 패턴의 딜레이 삽입.
+        총 소요시간: 약 2~4분 (본문 길이에 따라 변동)
+        """
+        blog_id = blog_id or os.environ.get("NAVER_ID", "")
+
+        if not self.browser:
+            await self.connect()
+
+        await self.login()
+
+        # 1. 에디터 진입
+        await self._navigate_to_editor(blog_id)
+        await asyncio.sleep(random.uniform(2.0, 3.0))  # 화면 보는 시간
+
+        # 2. 제목 타이핑
+        title_result = await self._set_title_human(title)
+        if not title_result.get("ok"):
+            return {"success": False, "error": "제목 설정 실패"}
+
+        # 3. 본문 chunk 단위 삽입
+        await self._set_content_human(content)
+
+        # 4. 글 훑어보기
+        await self._simulate_review()
+
+        # 5. 카테고리 선택
+        if category_no:
+            await asyncio.sleep(random.uniform(0.5, 1.0))
+            await self._set_category(category_no)
+            await asyncio.sleep(random.uniform(0.8, 1.5))
+
+        # 6. 유효성 검증
+        validation = await self._validate()
+        if not validation.get("valid"):
+            return {
+                "success": False,
+                "error": f"검증 실패: {validation.get('reason')}",
+                "validation": validation,
+            }
+
+        # 7. 최종 검토
+        await asyncio.sleep(random.uniform(2.0, 4.0))
+
+        # 8. 발행
+        result = await self._publish()
+        return result
+
     async def close(self):
         """연결 종료"""
         if self.browser:
@@ -421,7 +566,7 @@ class NaverPoster:
             await self._pw.stop()
 
 
-async def quick_post(title, content, blog_id=None, category_no=None):
+async def quick_post(title, content, blog_id=None, category_no=None, human_like=True):
     """
     간편 발행 함수
 
@@ -432,7 +577,10 @@ async def quick_post(title, content, blog_id=None, category_no=None):
     """
     poster = NaverPoster()
     try:
-        result = await poster.post(title, content, blog_id, category_no)
+        if human_like:
+            result = await poster.post_human_like(title, content, blog_id, category_no)
+        else:
+            result = await poster.post(title, content, blog_id, category_no)
         return result
     finally:
         await poster.close()
@@ -441,7 +589,8 @@ async def quick_post(title, content, blog_id=None, category_no=None):
 async def generate_and_post(topic, persona_id="yun_ung_chae",
                             persona_name="윤웅채",
                             model_id="claude-sonnet-4-6",
-                            blog_id=None, category_no=None):
+                            blog_id=None, category_no=None,
+                            human_like=True):
     """
     키워드 → 칼럼 생성 → HTML 포맷팅 → 네이버 발행 통합 함수
 
@@ -481,7 +630,10 @@ async def generate_and_post(topic, persona_id="yun_ung_chae",
     # 4. 발행
     poster = NaverPoster()
     try:
-        post_result = await poster.post(title, html_content, blog_id, category_no, use_html=True)
+        if human_like:
+            post_result = await poster.post_human_like(title, html_content, blog_id, category_no)
+        else:
+            post_result = await poster.post(title, html_content, blog_id, category_no, use_html=True)
         post_result["generation"] = {
             "attempts": gen_result["attempts"],
             "similarity": gen_result["similarity_check"],
