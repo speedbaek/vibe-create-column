@@ -147,10 +147,6 @@ def load_persona_rules(persona_id):
                 end = random.choice(end_options)
                 rules_parts.append(f"- 글 끝부분에 아래 안내 문구를 삽입하세요 (링크 마커 포함):\n\"{end}\"")
 
-            phone = cta.get('phone', '')
-            if phone:
-                rules_parts.append(f"- 글 맨 끝에 전화번호를 안내하세요: ※ 윤웅채 변리사 직통전화 ※\n{phone}")
-
         # 어휘 선호도
         vocab = data.get('vocabulary_preferences', {})
         if vocab:
