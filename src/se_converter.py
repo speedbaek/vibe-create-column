@@ -47,7 +47,7 @@ def _gen_id():
     return f"SE-{uuid.uuid4()}"
 
 
-def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url=None):
+def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url=None, bg_color=None):
     style = {
         "fontColor": font_color,
         "fontFamily": "system",
@@ -57,6 +57,8 @@ def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url
         style["bold"] = True
     if font_size:
         style["fontSize"] = font_size
+    if bg_color:
+        style["backgroundColor"] = bg_color
     node = {
         "id": _gen_id(),
         "value": value,
@@ -70,7 +72,7 @@ def _text_node(value, bold=False, font_color="#000000", font_size=None, link_url
 
 # ── 색상/하이라이트 설정 ─────────────────────────────
 BOLD_COLOR = "#E53935"       # **bold** 키워드 → 빨간색
-HIGHLIGHT_COLOR = "#1565C0"  # 하이라이트 문장 → 파란색 볼드 (fontBackgroundColor 미지원)
+HIGHLIGHT_BG = "#FFF9C4"     # 하이라이트 문장 → 노란색 배경 (backgroundColor)
 HIGHLIGHT_MAX = 6
 
 _HIGHLIGHT_ENDINGS = re.compile(
@@ -243,7 +245,7 @@ def _parse_inline(text):
 
 
 def _parse_inline_highlight(text):
-    """하이라이트 문장 파싱: 전체 파란색 볼드, **bold** 부분은 빨간색 유지"""
+    """하이라이트 문장 파싱: 전체 노란색 배경 + **bold** 부분은 빨간색"""
     nodes = []
     pattern = r'\*\*(.+?)\*\*|\[([^\]]+)\]\((https?://[^\)]+)\)'
     last_end = 0
@@ -251,19 +253,19 @@ def _parse_inline_highlight(text):
     for match in re.finditer(pattern, text):
         before = text[last_end:match.start()]
         if before:
-            nodes.append(_text_node(before, bold=True, font_color=HIGHLIGHT_COLOR))
+            nodes.append(_text_node(before, bg_color=HIGHLIGHT_BG))
         if match.group(1):
-            # **bold** → 빨간색 볼드 유지
-            nodes.append(_text_node(match.group(1), bold=True, font_color=BOLD_COLOR))
+            # **bold** → 빨간색 볼드 + 노란색 배경
+            nodes.append(_text_node(match.group(1), bold=True, font_color=BOLD_COLOR, bg_color=HIGHLIGHT_BG))
         elif match.group(2) and match.group(3):
-            nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3)))
+            nodes.append(_text_node(match.group(2), font_color="#1a73e8", link_url=match.group(3), bg_color=HIGHLIGHT_BG))
         last_end = match.end()
 
     remaining = text[last_end:]
     if remaining:
-        nodes.append(_text_node(remaining, bold=True, font_color=HIGHLIGHT_COLOR))
+        nodes.append(_text_node(remaining, bg_color=HIGHLIGHT_BG))
     if not nodes:
-        nodes.append(_text_node("", bold=True, font_color=HIGHLIGHT_COLOR))
+        nodes.append(_text_node("", bg_color=HIGHLIGHT_BG))
     return nodes
 
 
