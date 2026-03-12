@@ -1,9 +1,9 @@
 """
 이미지 핸들러 모듈
-- 소제목 텍스트를 손글씨 스타일로 렌더링한 PIL 이미지 생성
-- 680x200 가로형 직사각형
-- NanumPen / NanumBrush 폰트 자동 다운로드
-- DALL-E 레거시 지원 유지
+- 소제목 텍스트를 카드형 이미지로 렌더링 (PIL)
+- 960x540 표준 블로그 이미지 크기 (네이버 이미지 인식 대응)
+- NanumPen / NanumBrush / 맑은고딕 혼합 사용
+- 그라데이션 배경 + 장식 요소로 시각적 복잡도 확보
 """
 
 import os
@@ -12,8 +12,8 @@ import logging
 import random
 import uuid
 import requests
-import textwrap
 import urllib.request
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,9 @@ FONTS = {
     "NanumBrush": "https://github.com/google/fonts/raw/main/ofl/nanumbrushscript/NanumBrushScript-Regular.ttf",
 }
 
-# 이미지 크기
-IMG_WIDTH = 680
-IMG_HEIGHT = 200
+# 표준 블로그 이미지 크기 (16:9)
+IMG_WIDTH = 960
+IMG_HEIGHT = 540
 
 
 def ensure_fonts():
@@ -59,7 +59,6 @@ def _get_font(name, size):
     path = fonts.get(name)
     if path and os.path.exists(path):
         return ImageFont.truetype(path, size)
-    # 폴백: 시스템 기본 폰트
     try:
         return ImageFont.truetype("malgun.ttf", size)
     except OSError:
@@ -67,16 +66,15 @@ def _get_font(name, size):
 
 
 def _wrap_text(text, font, max_width, draw):
-    """텍스트가 max_width를 넘으면 2줄로 줄바꿈"""
+    """텍스트가 max_width를 넘으면 줄바꿈"""
     bbox = draw.textbbox((0, 0), text, font=font)
     text_width = bbox[2] - bbox[0]
 
     if text_width <= max_width:
         return [text]
 
-    # 중간 지점에서 분할 시도
+    # 중간 지점에서 분할
     mid = len(text) // 2
-    # 분할 포인트 찾기 (공백, 쉼표, 마침표 등)
     split_at = -1
     for sep in [' ', ', ', '. ', '! ', '? ']:
         idx = text.rfind(sep, 0, mid + 5)
@@ -91,38 +89,142 @@ def _wrap_text(text, font, max_width, draw):
     return [line1, line2] if line2 else [line1]
 
 
-def _adjust_font_size(text, font_name, max_width, max_height, draw):
-    """텍스트에 맞게 폰트 크기 자동 조정 (40~50px 범위)"""
-    for size in [48, 44, 40, 36, 32]:
+def _adjust_font_size(text, font_name, max_width, max_height, draw, size_range=None):
+    """텍스트에 맞게 폰트 크기 자동 조정"""
+    if size_range is None:
+        size_range = [64, 58, 52, 48, 44, 40, 36]
+    for size in size_range:
         font = _get_font(font_name, size)
         lines = _wrap_text(text, font, max_width, draw)
-        # 전체 높이 계산
         total_h = 0
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             total_h += bbox[3] - bbox[1]
-        total_h += (len(lines) - 1) * 8  # 줄 간격
+        total_h += (len(lines) - 1) * 12
         if total_h <= max_height:
             return font, lines, size
-    # 최소 크기로 폴백
-    font = _get_font(font_name, 28)
+    font = _get_font(font_name, size_range[-1])
     lines = _wrap_text(text, font, max_width, draw)
-    return font, lines, 28
+    return font, lines, size_range[-1]
 
 
-def _style_white_brush(text, output_path):
-    """스타일 1: 흰 배경 + 붓글씨"""
+def _draw_gradient(draw, width, height, color_start, color_end, direction="vertical"):
+    """그라데이션 배경 생성"""
+    r1, g1, b1 = color_start
+    r2, g2, b2 = color_end
+    for i in range(height if direction == "vertical" else width):
+        ratio = i / (height if direction == "vertical" else width)
+        r = int(r1 + (r2 - r1) * ratio)
+        g = int(g1 + (g2 - g1) * ratio)
+        b = int(b1 + (b2 - b1) * ratio)
+        if direction == "vertical":
+            draw.line([(0, i), (width, i)], fill=(r, g, b))
+        else:
+            draw.line([(i, 0), (i, height)], fill=(r, g, b))
+
+
+def _draw_decorative_circles(draw, width, height, base_color, count=8):
+    """장식용 반투명 원 그리기"""
+    from PIL import Image, ImageDraw as ID
+    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    od = ID.Draw(overlay)
+    for _ in range(count):
+        cx = random.randint(-50, width + 50)
+        cy = random.randint(-50, height + 50)
+        radius = random.randint(30, 120)
+        alpha = random.randint(15, 40)
+        r, g, b = base_color
+        r = min(255, r + random.randint(-20, 20))
+        g = min(255, g + random.randint(-20, 20))
+        b = min(255, b + random.randint(-20, 20))
+        od.ellipse(
+            [cx - radius, cy - radius, cx + radius, cy + radius],
+            fill=(r, g, b, alpha)
+        )
+    return overlay
+
+
+def _draw_geometric_shapes(draw, width, height, color, count=5):
+    """기하학적 장식 (삼각형, 사각형, 선)"""
+    for _ in range(count):
+        shape = random.choice(['line', 'rect', 'diamond'])
+        alpha_color = (*color, random.randint(20, 50))
+
+        if shape == 'line':
+            x1 = random.randint(0, width)
+            y1 = random.randint(0, height)
+            x2 = x1 + random.randint(-200, 200)
+            y2 = y1 + random.randint(-200, 200)
+            draw.line([(x1, y1), (x2, y2)], fill=color[:3], width=1)
+        elif shape == 'rect':
+            x = random.randint(0, width)
+            y = random.randint(0, height)
+            s = random.randint(10, 40)
+            draw.rectangle([x, y, x + s, y + s], outline=color[:3], width=1)
+        elif shape == 'diamond':
+            cx = random.randint(0, width)
+            cy = random.randint(0, height)
+            s = random.randint(8, 25)
+            draw.polygon([(cx, cy - s), (cx + s, cy), (cx, cy + s), (cx - s, cy)],
+                         outline=color[:3])
+
+
+# ── 배경 테마 (그라데이션 색상 조합) ─────────────────
+_BG_THEMES = [
+    {"grad_start": (30, 60, 114), "grad_end": (42, 82, 152), "text": "#FFFFFF",
+     "accent": (100, 180, 255), "name": "deep_blue"},
+    {"grad_start": (44, 62, 80), "grad_end": (52, 73, 94), "text": "#FFFFFF",
+     "accent": (149, 165, 166), "name": "dark_slate"},
+    {"grad_start": (15, 32, 39), "grad_end": (32, 58, 67), "text": "#FFFFFF",
+     "accent": (80, 200, 180), "name": "dark_teal"},
+    {"grad_start": (72, 85, 99), "grad_end": (41, 50, 60), "text": "#FFFFFF",
+     "accent": (200, 200, 200), "name": "charcoal"},
+    {"grad_start": (240, 240, 245), "grad_end": (220, 225, 235), "text": "#1a1a2e",
+     "accent": (100, 120, 180), "name": "light_gray"},
+    {"grad_start": (250, 248, 240), "grad_end": (235, 230, 220), "text": "#2c2c2c",
+     "accent": (180, 150, 100), "name": "warm_ivory"},
+]
+
+
+def _style_gradient_card(text, output_path, theme_index=0):
+    """스타일 1: 그라데이션 배경 + 큰 텍스트 카드"""
     from PIL import Image, ImageDraw
 
-    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), '#FFFFFF')
+    theme = _BG_THEMES[theme_index % len(_BG_THEMES)]
+    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), theme["grad_start"])
     draw = ImageDraw.Draw(img)
 
+    # 그라데이션 배경
+    _draw_gradient(draw, IMG_WIDTH, IMG_HEIGHT, theme["grad_start"], theme["grad_end"])
+
+    # 장식 기하학 요소
+    _draw_geometric_shapes(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=8)
+
+    # 장식 원 오버레이
+    overlay = _draw_decorative_circles(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=6)
+    img_rgba = img.convert('RGBA')
+    img_rgba = Image.alpha_composite(img_rgba, overlay)
+    img = img_rgba.convert('RGB')
+    draw = ImageDraw.Draw(img)
+
+    # 중앙 반투명 카드 영역
+    card_margin = 80
+    card_y1 = 100
+    card_y2 = IMG_HEIGHT - 100
+    for y in range(card_y1, card_y2):
+        alpha = 30
+        r, g, b = theme["grad_start"]
+        draw.line([(card_margin, y), (IMG_WIDTH - card_margin, y)],
+                  fill=(min(r + 30, 255), min(g + 30, 255), min(b + 30, 255)))
+
+    # 텍스트
+    font_name = random.choice(["NanumBrush", "NanumPen"])
     font, lines, fsize = _adjust_font_size(
-        text, "NanumBrush", IMG_WIDTH - 80, IMG_HEIGHT - 40, draw
+        text, font_name, IMG_WIDTH - 200, 240, draw,
+        size_range=[72, 64, 58, 52, 48, 44]
     )
 
-    # 텍스트 중앙 배치 (살짝 랜덤 오프셋)
-    y_offset = random.randint(-2, 2)
+    # 텍스트 중앙 배치
     total_h = 0
     line_heights = []
     for line in lines:
@@ -130,46 +232,72 @@ def _style_white_brush(text, output_path):
         h = bbox[3] - bbox[1]
         line_heights.append(h)
         total_h += h
-    total_h += (len(lines) - 1) * 8
+    total_h += (len(lines) - 1) * 16
 
-    y = (IMG_HEIGHT - total_h) // 2 + y_offset
+    y = (IMG_HEIGHT - total_h) // 2
+    text_color = theme["text"]
     for i, line in enumerate(lines):
         bbox = draw.textbbox((0, 0), line, font=font)
         w = bbox[2] - bbox[0]
-        x = (IMG_WIDTH - w) // 2 + random.randint(-2, 2)
-        draw.text((x, y), line, fill='#1a1a1a', font=font)
-        y += line_heights[i] + 8
+        x = (IMG_WIDTH - w) // 2
+        # 그림자
+        draw.text((x + 2, y + 2), line, fill='#00000044', font=font)
+        draw.text((x, y), line, fill=text_color, font=font)
+        y += line_heights[i] + 16
 
-    # 하단에 얇은 밑줄 장식
-    line_y = IMG_HEIGHT - 30
-    line_w = min(len(text) * 12, IMG_WIDTH - 120)
+    # 하단 가는 선 장식
+    line_w = min(len(text) * 14, IMG_WIDTH - 200)
     x_start = (IMG_WIDTH - line_w) // 2
-    draw.line([(x_start, line_y), (x_start + line_w, line_y)], fill='#cccccc', width=1)
+    draw.line([(x_start, IMG_HEIGHT - 80), (x_start + line_w, IMG_HEIGHT - 80)],
+              fill=theme["text"], width=2)
 
-    img.save(output_path, 'PNG')
+    img.save(output_path, 'PNG', quality=95)
     return output_path
 
 
-def _style_canvas_multiline(text, output_path):
-    """스타일 2: 캔버스 질감 배경 + 펜글씨 + 여러 줄"""
+def _style_split_card(text, output_path, theme_index=0):
+    """스타일 2: 좌우 분할 카드 (색상 블록 + 텍스트)"""
     from PIL import Image, ImageDraw
 
-    # 연한 아이보리 배경
-    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), '#FAFAF8')
+    theme = _BG_THEMES[theme_index % len(_BG_THEMES)]
+    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), '#FFFFFF')
     draw = ImageDraw.Draw(img)
 
-    # 미세한 질감 (점선 노이즈)
-    for _ in range(200):
-        rx = random.randint(0, IMG_WIDTH - 1)
+    # 왼쪽 40% 색상 블록
+    split_x = int(IMG_WIDTH * 0.38)
+    _draw_gradient(draw, split_x, IMG_HEIGHT, theme["grad_start"], theme["grad_end"])
+
+    # 왼쪽 블록에 장식
+    _draw_geometric_shapes(draw, split_x, IMG_HEIGHT, theme["accent"], count=6)
+    overlay = _draw_decorative_circles(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=4)
+    img_rgba = img.convert('RGBA')
+    img_rgba = Image.alpha_composite(img_rgba, overlay)
+    img = img_rgba.convert('RGB')
+    draw = ImageDraw.Draw(img)
+
+    # 왼쪽 블록에 큰 따옴표 장식
+    quote_font = _get_font("NanumBrush", 140)
+    draw.text((40, 60), "\u201c", fill=theme["text"], font=quote_font)
+
+    # 오른쪽 영역: 연한 배경
+    right_bg = (248, 248, 250)
+    draw.rectangle([split_x, 0, IMG_WIDTH, IMG_HEIGHT], fill=right_bg)
+
+    # 오른쪽에 미세 패턴
+    for _ in range(300):
+        rx = random.randint(split_x, IMG_WIDTH - 1)
         ry = random.randint(0, IMG_HEIGHT - 1)
-        gray = random.randint(230, 245)
+        gray = random.randint(235, 248)
         draw.point((rx, ry), fill=(gray, gray, gray))
 
+    # 텍스트 (오른쪽 영역)
+    text_area_w = IMG_WIDTH - split_x - 100
+    font_name = random.choice(["NanumPen", "NanumBrush"])
     font, lines, fsize = _adjust_font_size(
-        text, "NanumPen", IMG_WIDTH - 80, IMG_HEIGHT - 40, draw
+        text, font_name, text_area_w, 300, draw,
+        size_range=[64, 58, 52, 48, 44, 40]
     )
 
-    y_offset = random.randint(-2, 2)
     total_h = 0
     line_heights = []
     for line in lines:
@@ -177,39 +305,75 @@ def _style_canvas_multiline(text, output_path):
         h = bbox[3] - bbox[1]
         line_heights.append(h)
         total_h += h
-    total_h += (len(lines) - 1) * 10
+    total_h += (len(lines) - 1) * 14
 
-    y = (IMG_HEIGHT - total_h) // 2 + y_offset
+    y = (IMG_HEIGHT - total_h) // 2
     for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font)
-        w = bbox[2] - bbox[0]
-        x = (IMG_WIDTH - w) // 2 + random.randint(-1, 1)
-        draw.text((x, y), line, fill='#1a1a3e', font=font)
-        y += line_heights[i] + 10
+        x = split_x + 50
+        draw.text((x, y), line, fill='#1a1a2e', font=font)
+        y += line_heights[i] + 14
 
-    img.save(output_path, 'PNG')
+    # 오른쪽 하단에 장식 라인
+    draw.line([(split_x + 50, IMG_HEIGHT - 70),
+               (split_x + 50 + min(len(text) * 10, text_area_w - 20), IMG_HEIGHT - 70)],
+              fill=theme["grad_start"], width=3)
+
+    img.save(output_path, 'PNG', quality=95)
     return output_path
 
 
-def _style_note_pen(text, output_path):
-    """스타일 3: 노트 줄 배경 + 펜글씨"""
+def _style_center_box(text, output_path, theme_index=0):
+    """스타일 3: 패턴 배경 + 중앙 박스 카드"""
     from PIL import Image, ImageDraw
 
-    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), '#FFFFFF')
+    theme = _BG_THEMES[theme_index % len(_BG_THEMES)]
+    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), theme["grad_end"])
     draw = ImageDraw.Draw(img)
 
-    # 가로 줄 (노트 느낌)
-    for y_line in range(40, IMG_HEIGHT, 28):
-        draw.line([(40, y_line), (IMG_WIDTH - 40, y_line)], fill='#e0e0e0', width=1)
+    # 대각선 그라데이션 시뮬레이션
+    for y in range(IMG_HEIGHT):
+        for x in range(0, IMG_WIDTH, 4):
+            ratio = (x / IMG_WIDTH * 0.5 + y / IMG_HEIGHT * 0.5)
+            r = int(theme["grad_start"][0] + (theme["grad_end"][0] - theme["grad_start"][0]) * ratio)
+            g = int(theme["grad_start"][1] + (theme["grad_end"][1] - theme["grad_start"][1]) * ratio)
+            b = int(theme["grad_start"][2] + (theme["grad_end"][2] - theme["grad_start"][2]) * ratio)
+            draw.line([(x, y), (x + 3, y)], fill=(r, g, b))
 
-    # 세로 빨간 줄 (왼쪽)
-    draw.line([(60, 20), (60, IMG_HEIGHT - 20)], fill='#ffcccc', width=1)
+    # 도트 패턴
+    for dx in range(0, IMG_WIDTH, 30):
+        for dy in range(0, IMG_HEIGHT, 30):
+            alpha = random.randint(5, 20)
+            r, g, b = theme["accent"]
+            draw.ellipse([dx - 2, dy - 2, dx + 2, dy + 2],
+                         fill=(min(r, 255), min(g, 255), min(b, 255)))
 
-    font, lines, fsize = _adjust_font_size(
-        text, "NanumPen", IMG_WIDTH - 120, IMG_HEIGHT - 50, draw
+    # 중앙 흰색/반투명 박스
+    box_margin_x = 100
+    box_margin_y = 80
+    # 박스 배경 (연한색)
+    is_dark = sum(theme["grad_start"]) < 400
+    if is_dark:
+        box_color = (255, 255, 255)
+        text_color = '#1a1a2e'
+    else:
+        box_color = theme["grad_start"]
+        text_color = '#FFFFFF'
+
+    # 라운드 사각형 대신 일반 사각형 + 테두리
+    draw.rectangle(
+        [box_margin_x, box_margin_y, IMG_WIDTH - box_margin_x, IMG_HEIGHT - box_margin_y],
+        fill=box_color, outline=None
     )
 
-    y_offset = random.randint(-1, 1)
+    # 박스 안 텍스트
+    text_area_w = IMG_WIDTH - box_margin_x * 2 - 80
+    text_area_h = IMG_HEIGHT - box_margin_y * 2 - 60
+    font_name = random.choice(["NanumPen", "NanumBrush"])
+    font, lines, fsize = _adjust_font_size(
+        text, font_name, text_area_w, text_area_h, draw,
+        size_range=[68, 62, 56, 50, 46, 42]
+    )
+
     total_h = 0
     line_heights = []
     for line in lines:
@@ -217,27 +381,33 @@ def _style_note_pen(text, output_path):
         h = bbox[3] - bbox[1]
         line_heights.append(h)
         total_h += h
-    total_h += (len(lines) - 1) * 8
+    total_h += (len(lines) - 1) * 14
 
-    y = (IMG_HEIGHT - total_h) // 2 + y_offset
+    y = (IMG_HEIGHT - total_h) // 2
     for i, line in enumerate(lines):
         bbox = draw.textbbox((0, 0), line, font=font)
         w = bbox[2] - bbox[0]
-        x = (IMG_WIDTH - w) // 2 + random.randint(-1, 1)
-        draw.text((x, y), line, fill='#1a1a1a', font=font)
-        y += line_heights[i] + 8
+        x = (IMG_WIDTH - w) // 2
+        draw.text((x, y), line, fill=text_color, font=font)
+        y += line_heights[i] + 14
 
-    img.save(output_path, 'PNG')
+    # 박스 상단 악센트 라인
+    draw.rectangle(
+        [box_margin_x, box_margin_y, IMG_WIDTH - box_margin_x, box_margin_y + 4],
+        fill=theme["accent"]
+    )
+
+    img.save(output_path, 'PNG', quality=95)
     return output_path
 
 
-# 3가지 스타일 함수 목록
-_STYLES = [_style_white_brush, _style_canvas_multiline, _style_note_pen]
+# 스타일 함수 목록
+_STYLES = [_style_gradient_card, _style_split_card, _style_center_box]
 
 
 def generate_handwriting_image(text, output_path, style_index=None):
     """
-    소제목 텍스트를 손글씨 스타일 이미지로 생성
+    소제목 텍스트를 카드형 이미지로 생성 (960x540)
 
     Args:
         text: 소제목 텍스트
@@ -248,19 +418,22 @@ def generate_handwriting_image(text, output_path, style_index=None):
         str: 저장된 파일 경로
     """
     if style_index is None:
-        style_fn = random.choice(_STYLES)
+        style_idx = random.randint(0, len(_STYLES) - 1)
     else:
-        style_fn = _STYLES[style_index % len(_STYLES)]
+        style_idx = style_index % len(_STYLES)
 
-    return style_fn(text, output_path)
+    # 테마도 이미지마다 다르게
+    theme_idx = (style_index or 0) % len(_BG_THEMES)
+
+    return _STYLES[style_idx](text, output_path, theme_index=theme_idx)
 
 
 def generate_blog_images(topic, content="", image_count=4, user_image_paths=None):
     """
-    블로그 본문 이미지 생성 (PIL 손글씨 스타일)
+    블로그 본문 이미지 생성 (PIL 카드형 이미지)
 
-    소제목을 추출하여 손글씨 텍스트 이미지를 생성합니다.
-    DALL-E 대신 PIL을 사용하여 비용 없이 즉시 생성.
+    소제목을 추출하여 카드형 텍스트 이미지를 생성합니다.
+    960x540 표준 크기로 네이버 이미지 인식 대응.
 
     Args:
         topic: 주제
@@ -292,7 +465,6 @@ def generate_blog_images(topic, content="", image_count=4, user_image_paths=None
     # 소제목 추출
     subtitles = _extract_subtitles(content)
     if not subtitles:
-        # 소제목이 없으면 주제를 기반으로 생성
         subtitles = [topic]
 
     # 출력 디렉토리
@@ -318,9 +490,9 @@ def generate_blog_images(topic, content="", image_count=4, user_image_paths=None
                 "alt": subtitle_text,
                 "source": "pil_handwriting",
             })
-            logger.info(f"손글씨 이미지 생성: {filepath}")
+            logger.info(f"카드 이미지 생성: {filepath}")
         except Exception as e:
-            logger.error(f"손글씨 이미지 생성 실패 [{i}]: {e}")
+            logger.error(f"카드 이미지 생성 실패 [{i}]: {e}")
             body_images.append({
                 "url": _get_placeholder_url(text=f"Image+{i+1}"),
                 "alt": f"본문 이미지 {i+1}",
@@ -356,7 +528,7 @@ def download_dalle_images(image_data, output_dir="outputs/images"):
             local_paths.append(None)
             continue
 
-        # PIL 손글씨 이미지 → 이미 로컬 파일
+        # PIL 이미지 → 이미 로컬 파일
         if source == "pil_handwriting":
             if os.path.exists(url):
                 local_paths.append(url)
@@ -409,7 +581,7 @@ def _get_placeholder_url(width=800, height=400, text="Blog Image"):
 
 def generate_thumbnail(topic, subtitle="", preset="dark_minimal"):
     """
-    썸네일 이미지 생성 (PIL 손글씨 스타일)
+    썸네일 이미지 생성 (PIL 카드형 스타일)
 
     Args:
         topic: 제목
