@@ -15,6 +15,8 @@ import random
 import httpx
 import anthropic
 
+import re as _re_engine
+
 BASE_PROMPT_PATH = "config/base_prompt.md"
 HUMAN_STYLE_PATH = "config/human_style_rules.md"
 ANTI_AI_PATH = "config/anti_ai_detection.md"
@@ -129,12 +131,13 @@ def load_persona_rules(persona_id):
             end_options = cta.get('end_text_options', [])
             links = cta.get('links', {})
 
-            rules_parts.append("## CTA (공지글 유도) 규칙")
+            rules_parts.append("## CTA (공지글 유도) 규칙 — 반드시 준수")
             rules_parts.append(f"- 스타일: {cta.get('style', 'non-aggressive')}")
 
             # 사용 가능한 링크 마커 안내
             if links:
-                rules_parts.append("- 사용 가능한 링크 마커 (본문에 그대로 삽입하면 발행 시 자동으로 링크카드로 변환됩니다):")
+                rules_parts.append("- [필수] 아래 링크 마커를 본문에 반드시 원문 그대로 삽입하세요. 마커는 발행 시 자동으로 링크카드로 변환됩니다.")
+                rules_parts.append("- [주의] 마커를 빼먹거나, 변형하거나, 다른 텍스트로 대체하면 안 됩니다. 아래 형태 그대로 복사하여 사용하세요:")
                 for link_key, link_info in links.items():
                     marker = link_info.get('marker', '')
                     short_title = link_info.get('short_title', '')
@@ -142,10 +145,10 @@ def load_persona_rules(persona_id):
 
             if mid_options:
                 mid = random.choice(mid_options)
-                rules_parts.append(f"- 글 중간에 아래 유도 문구를 자연스럽게 삽입하세요 (링크 마커 포함):\n\"{mid}\"")
+                rules_parts.append(f"- [필수] 글 중간(본문의 40~60% 지점)에 아래 문구를 반드시 그대로 삽입하세요. {{{{LINK:...}}}} 마커를 절대 빼지 마세요:\n\n{mid}")
             if end_options:
                 end = random.choice(end_options)
-                rules_parts.append(f"- 글 끝부분에 아래 안내 문구를 삽입하세요 (링크 마커 포함):\n\"{end}\"")
+                rules_parts.append(f"- [필수] 글 끝부분(감사합니다 직전)에 아래 문구를 반드시 그대로 삽입하세요. {{{{LINK:...}}}} 마커를 절대 빼지 마세요:\n\n{end}")
 
         # 어휘 선호도
         vocab = data.get('vocabulary_preferences', {})
@@ -158,6 +161,25 @@ def load_persona_rules(persona_id):
 
     except (json.JSONDecodeError, IOError) as e:
         return f"- 설정 파일 로드 실패: {e}"
+
+
+def normalize_content_spacing(text):
+    """
+    생성된 콘텐츠의 과도한 빈줄/공백을 정규화
+
+    - 3줄 이상 연속 줄바꿈 → 2줄로 축소
+    - ZWS(​) + 빈줄 과다 패턴 정리
+    - 문단 간 간격을 일관되게 유지
+    """
+    # ZWS(U+200B) 단독 줄 제거 → 빈줄로 통일
+    text = _re_engine.sub(r'\n\s*\u200B\s*\n', '\n\n', text)
+    # 3줄 이상 연속 줄바꿈 → 2줄
+    text = _re_engine.sub(r'\n{3,}', '\n\n', text)
+    # 줄 끝 공백 제거
+    text = _re_engine.sub(r'[ \t]+\n', '\n', text)
+    # 맨 앞뒤 빈줄 제거
+    text = text.strip()
+    return text
 
 
 def replace_link_markers(text, persona_id):
@@ -190,19 +212,33 @@ def replace_link_markers(text, persona_id):
     if not links:
         return text
 
-    # 마커 → 링크 블록 치환
+    # 마커 → 링크 URL 치환
+    replaced_any = False
     for link_key, link_info in links.items():
         marker = link_info.get('marker', '')
         if not marker or marker not in text:
             continue
 
-        title = link_info.get('title', '')
         url = link_info.get('url', '')
-
-        # 네이버 블로그 링크 텍스트 블록 생성
-        link_block = f"<{link_info.get('short_title', title)}>\n{title}\n{url}"
-
+        link_block = f"\n{url}\n"
         text = text.replace(marker, link_block)
+        replaced_any = True
+
+    # 마커가 하나도 없었으면 철학글 + 상담글 링크를 본문 끝에 추가
+    if not replaced_any:
+        philosophy = links.get('philosophy', {})
+        consultation = links.get('consultation', {})
+        text = text.rstrip()
+
+        # 철학글 링크 (맺음말 전에)
+        phil_url = philosophy.get('url', '')
+        if phil_url:
+            text += f"\n\n아래의 공지글에는 저의 업무 철학이 담겨 있습니다. 이 글 정도는 꼭 한번 읽어 보시고 선택을 고민해 보시기 바랍니다.\n\n{phil_url}\n"
+
+        # 상담글 링크
+        consult_url = consultation.get('url', '')
+        if consult_url:
+            text += f"\n당장 상담이 필요하신 분들은 아래 링크를 통해 연락 주시면 됩니다.\n\n{consult_url}\n"
 
     return text
 

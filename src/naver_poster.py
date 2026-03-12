@@ -118,18 +118,176 @@ class NaverPoster:
         }}""", title)
         return result
 
-    async def _set_content(self, text_content):
-        """본문 설정 (SmartEditor API: focusFirstText + write)"""
+    async def _set_content(self, content, use_html=True):
+        """
+        본문 설정 (HTML 모드 → Plain Text 폴백)
+
+        Args:
+            content: 본문 내용 (HTML 또는 plain text)
+            use_html: True면 HTML 삽입 시도 후 실패 시 plain text 폴백
+        """
+        if use_html:
+            result = await self._set_content_html(content)
+            if result and result.get("ok"):
+                return result
+            # HTML 실패 → plain text 폴백 (HTML 태그 제거)
+            import re
+            plain = re.sub(r'<[^>]+>', '', content)
+            plain = plain.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+            return await self._set_content_plain(plain)
+
+        return await self._set_content_plain(content)
+
+    async def _set_content_plain(self, text_content):
+        """Plain text 본문 설정 (기존 방식)"""
         result = await self.page.evaluate(f"""(body) => {{
             var ed = SmartEditor._editors['{EDITOR_KEY}'];
             ed.focusFirstText();
             ed._editingService.write(body);
             return {{
                 ok: true,
+                method: 'plain_text',
                 contentText: ed.getContentText().substring(0, 200),
                 isEmpty: ed.isEmptyDocumentContent(),
             }};
         }}""", text_content)
+        return result
+
+    async def _set_content_html(self, html_content):
+        """
+        HTML 본문 설정 시도 (3가지 방법 순차 시도)
+        1. SmartEditor setContent/setDocumentContent API
+        2. editing area의 execCommand('insertHTML')
+        3. contenteditable 영역 직접 조작
+        """
+        result = await self.page.evaluate(f"""(html) => {{
+            var ed = SmartEditor._editors['{EDITOR_KEY}'];
+
+            // Method 1: SmartEditor 내장 API 시도
+            try {{
+                if (typeof ed.setDocumentContent === 'function') {{
+                    ed.setDocumentContent(html);
+                    var ct = ed.getContentText();
+                    if (ct && ct.length > 10 && !ct.includes('<p>') && !ct.includes('<b>')) {{
+                        return {{
+                            ok: true,
+                            method: 'setDocumentContent',
+                            contentText: ct.substring(0, 200),
+                            isEmpty: ed.isEmptyDocumentContent(),
+                        }};
+                    }}
+                }}
+            }} catch(e) {{}}
+
+            // Method 2: editing area iframe의 execCommand
+            try {{
+                ed.focusFirstText();
+                var iframe = document.querySelector('.se-editing-area iframe');
+                var editDoc = null;
+                if (iframe && iframe.contentDocument) {{
+                    editDoc = iframe.contentDocument;
+                }}
+                if (!editDoc) {{
+                    // contenteditable 영역 찾기
+                    var editables = document.querySelectorAll('[contenteditable="true"]');
+                    for (var el of editables) {{
+                        if (el.closest('.se-editing-area') || el.classList.toString().includes('editing')) {{
+                            editDoc = el.ownerDocument;
+                            break;
+                        }}
+                    }}
+                }}
+                if (editDoc) {{
+                    editDoc.execCommand('selectAll', false, null);
+                    editDoc.execCommand('insertHTML', false, html);
+                    var ct2 = ed.getContentText();
+                    if (ct2 && ct2.length > 10 && !ct2.includes('<p>') && !ct2.includes('<b>')) {{
+                        return {{
+                            ok: true,
+                            method: 'execCommand',
+                            contentText: ct2.substring(0, 200),
+                            isEmpty: ed.isEmptyDocumentContent(),
+                        }};
+                    }}
+                }}
+            }} catch(e) {{}}
+
+            // Method 3: write()에 HTML 전달 (일부 에디터에서 HTML로 처리됨)
+            try {{
+                ed.focusFirstText();
+                ed._editingService.write(html);
+                var ct3 = ed.getContentText().substring(0, 200);
+                if (ct3.includes('<p>') || ct3.includes('<b>') || ct3.includes('&lt;')) {{
+                    // HTML 태그가 텍스트로 보임 → 실패
+                    return {{ ok: false, method: 'write_failed', reason: 'HTML rendered as text' }};
+                }}
+                return {{
+                    ok: true,
+                    method: 'write_html',
+                    contentText: ct3,
+                    isEmpty: ed.isEmptyDocumentContent(),
+                }};
+            }} catch(e) {{}}
+
+            return {{ ok: false, method: 'all_failed' }};
+        }}""", html_content)
+        return result
+
+    async def _insert_images(self, image_paths):
+        """
+        SmartEditor에 이미지 파일 삽입
+
+        SmartEditor의 이미지 업로드 input을 활용하여 이미지 삽입.
+        Args:
+            image_paths: 로컬 이미지 파일 경로 리스트
+        """
+        if not image_paths:
+            return
+
+        for img_path in image_paths:
+            if not os.path.exists(img_path):
+                continue
+            try:
+                # SmartEditor의 이미지 추가 버튼 클릭
+                img_btn = self.page.locator("button.se-image-toolbar-button, button[data-name='image']").first
+                if await img_btn.is_visible(timeout=3000):
+                    await img_btn.click()
+                    await asyncio.sleep(1)
+
+                    # 파일 input에 이미지 설정
+                    file_input = self.page.locator("input[type='file'][accept*='image']").first
+                    if await file_input.count() > 0:
+                        await file_input.set_input_files(img_path)
+                        await asyncio.sleep(3)
+            except Exception:
+                pass
+
+    async def discover_editor_api(self):
+        """SmartEditor API 디스커버리 (디버깅용)"""
+        result = await self.page.evaluate(f"""() => {{
+            var ed = SmartEditor._editors['{EDITOR_KEY}'];
+            var es = ed._editingService;
+
+            var edMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(ed))
+                .filter(m => typeof ed[m] === 'function')
+                .filter(m => /content|html|insert|write|set|component/i.test(m));
+
+            var esMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(es))
+                .filter(m => typeof es[m] === 'function')
+                .filter(m => /content|html|insert|write|set|component/i.test(m));
+
+            // editing area 정보
+            var iframe = document.querySelector('.se-editing-area iframe');
+            var contentEditable = document.querySelector('[contenteditable="true"]');
+
+            return {{
+                editor_methods: edMethods,
+                editing_service_methods: esMethods,
+                has_iframe: !!iframe,
+                has_contenteditable: !!contentEditable,
+                contenteditable_tag: contentEditable ? contentEditable.tagName : null,
+            }};
+        }}""")
         return result
 
     async def _validate(self):
@@ -204,15 +362,18 @@ class NaverPoster:
 
         return {"success": False, "url": final_url, "error": "발행 후 URL 미변경"}
 
-    async def post(self, title, content, blog_id=None, category_no=None):
+    async def post(self, title, content, blog_id=None, category_no=None,
+                   use_html=True, image_urls=None):
         """
         블로그 글 발행 전체 흐름
 
         Args:
             title: 글 제목
-            content: 본문 텍스트
+            content: 본문 (HTML 또는 plain text)
             blog_id: 블로그 ID (없으면 NAVER_ID 사용)
             category_no: 카테고리 번호
+            use_html: HTML 모드 사용 여부
+            image_urls: 이미지 URL 리스트 (HTML에 이미 포함된 경우 None)
 
         Returns:
             dict: {'success': bool, 'url': str, ...}
@@ -231,7 +392,7 @@ class NaverPoster:
             return {"success": False, "error": "제목 설정 실패"}
 
         # 본문 설정
-        content_result = await self._set_content(content)
+        content_result = await self._set_content(content, use_html=use_html)
         if content_result.get("isEmpty"):
             return {"success": False, "error": "본문 설정 실패 (isEmpty=true)"}
 
@@ -282,14 +443,15 @@ async def generate_and_post(topic, persona_id="yun_ung_chae",
                             model_id="claude-sonnet-4-6",
                             blog_id=None, category_no=None):
     """
-    키워드 → 칼럼 생성 → 네이버 발행 통합 함수
+    키워드 → 칼럼 생성 → HTML 포맷팅 → 네이버 발행 통합 함수
 
     Usage:
         import asyncio
         from src.naver_poster import generate_and_post
         result = asyncio.run(generate_and_post("상표등록 필수인 이유"))
     """
-    from src.engine import generate_column_with_validation
+    from src.engine import generate_column_with_validation, replace_link_markers, normalize_content_spacing
+    from src.formatter import format_for_smarteditor
 
     # 1. 칼럼 생성
     gen_result = generate_column_with_validation(
@@ -301,6 +463,13 @@ async def generate_and_post(topic, persona_id="yun_ung_chae",
 
     content = gen_result["content"]
 
+    # 2. 후처리: 간격 정규화 + 링크 마커 치환
+    content = normalize_content_spacing(content)
+    content = replace_link_markers(content, persona_id)
+
+    # 3. HTML 포맷팅
+    html_content = format_for_smarteditor(content)
+
     # 제목 추출
     title = topic
     for line in content.split("\n"):
@@ -309,10 +478,10 @@ async def generate_and_post(topic, persona_id="yun_ung_chae",
             title = stripped.lstrip("#").strip()
             break
 
-    # 2. 발행
+    # 4. 발행
     poster = NaverPoster()
     try:
-        post_result = await poster.post(title, content, blog_id, category_no)
+        post_result = await poster.post(title, html_content, blog_id, category_no, use_html=True)
         post_result["generation"] = {
             "attempts": gen_result["attempts"],
             "similarity": gen_result["similarity_check"],

@@ -8,9 +8,9 @@ import os
 import json
 from datetime import datetime
 
-from src.engine import generate_column_with_validation, generate_column, generate_hooking_title, replace_link_markers
+from src.engine import generate_column_with_validation, generate_column, generate_hooking_title, replace_link_markers, normalize_content_spacing
 from src.similarity import check_similarity
-from src.formatter import format_column_html, format_column_preview
+from src.formatter import format_column_html, format_column_preview, format_for_smarteditor
 
 
 def generate_preview(topic, persona_id, persona_name,
@@ -63,7 +63,8 @@ def generate_preview(topic, persona_id, persona_name,
 
     content = result["content"]
 
-    # 2.5. 링크 마커 치환
+    # 2.5. 문단 간격 정규화 + 링크 마커 치환
+    content = normalize_content_spacing(content)
     content = replace_link_markers(content, persona_id)
 
     # 3. 제목 결정: 후킹 제목 첫 번째 후보 > 본문 헤딩 > 키워드
@@ -99,6 +100,14 @@ def generate_preview(topic, persona_id, persona_name,
             image_data = None
 
     # 4. HTML 포맷팅
+    # SmartEditor용 HTML (실제 발행에 사용)
+    image_urls = None
+    if image_data:
+        body_images = image_data.get("body_images", [])
+        image_urls = [img.get("url", "") for img in body_images if img.get("url")]
+    smarteditor_html = format_for_smarteditor(content, image_urls=image_urls)
+
+    # 웹 미리보기용 HTML
     html_content = format_column_html(
         content, persona_id,
         include_images=bool(image_data),
@@ -115,6 +124,7 @@ def generate_preview(topic, persona_id, persona_name,
         "title_candidates": title_candidates,
         "raw_content": content,
         "html_content": html_content,
+        "smarteditor_html": smarteditor_html,
         "preview_html": preview_html,
         "char_count": len(content),
         "attempts": result["attempts"],

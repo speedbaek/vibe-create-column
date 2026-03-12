@@ -551,11 +551,17 @@ with tab1:
                                     publish_log.info(f"[{i+1}/{len(successful)}] '{title[:30]}...' 발행 중...")
 
                                     try:
+                                        # SmartEditor HTML 우선, 없으면 raw_content
+                                        se_html = result.get("smarteditor_html", "")
+                                        post_content = se_html if se_html else content
+                                        use_html = bool(se_html)
+
                                         post_result = await poster.post(
                                             title=title,
-                                            content=content,
+                                            content=post_content,
                                             blog_id=naver_id,
                                             category_no=cat_no,
+                                            use_html=use_html,
                                         )
                                         results.append({
                                             "title": title,
