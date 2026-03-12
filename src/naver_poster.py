@@ -2,35 +2,18 @@
 네이버 블로그 자동 발행 모듈
 - Playwright CDP 연결 (실행 중인 Chrome에 연결)
 - SmartEditor ONE 내부 API 활용
-- 핵심 패턴: setDocumentTitle() -> focusFirstText() -> _editingService.write()
-- 재시도 로직, 연결 복구, 에러 핸들링 포함
+- 핵심 패턴: setDocumentTitle() → focusFirstText() → _editingService.write()
 """
 
 import os
-import sys
 import asyncio
 import subprocess
 import time
-import logging
-
-from src.formatter import format_column_html
-
-# UTF-8 출력 보장 (cp949 이모지 에러 방지)
-if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-
-logger = logging.getLogger(__name__)
 
 EDITOR_KEY = "blogpc001"
 CDP_URL = "http://127.0.0.1:9222"
 EDITOR_URL = "https://blog.naver.com/{blog_id}/postwrite"
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-
-MAX_RETRIES = 2
-RETRY_DELAY = 3
 
 
 class NaverPoster:
@@ -38,8 +21,6 @@ class NaverPoster:
         self.browser = None
         self.context = None
         self.page = None
-        self._pw = None
-        self._connected = False
 
     async def _ensure_chrome_running(self):
         """Chrome이 remote debugging 모드로 실행 중인지 확인"""
@@ -55,73 +36,32 @@ class NaverPoster:
 
     async def _launch_chrome_debug(self):
         """Chrome을 remote debugging 모드로 실행"""
-        if not os.path.exists(CHROME_PATH):
-            raise FileNotFoundError(
-                f"Chrome을 찾을 수 없습니다: {CHROME_PATH}\n"
-                "Chrome을 설치하거나 CHROME_PATH를 수정해주세요."
-            )
         cmd = [
             CHROME_PATH,
-            "--remote-debugging-port=9222",
+            f"--remote-debugging-port=9222",
             "--no-first-run",
             "--no-default-browser-check",
         ]
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        await asyncio.sleep(3)
+        time.sleep(3)
 
     async def connect(self):
-        """CDP로 Chrome 연결 (재시도 포함)"""
+        """CDP로 Chrome 연결"""
         from playwright.async_api import async_playwright
 
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                if not await self._ensure_chrome_running():
-                    logger.info("Chrome이 실행되지 않음. 자동 시작...")
-                    await self._launch_chrome_debug()
+        if not await self._ensure_chrome_running():
+            await self._launch_chrome_debug()
+            await asyncio.sleep(3)
 
-                self._pw = await async_playwright().start()
-                self.browser = await self._pw.chromium.connect_over_cdp(CDP_URL)
-                self.context = self.browser.contexts[0]
-                self._connected = True
-                logger.info("Chrome CDP 연결 성공")
-                return
-            except Exception as e:
-                logger.warning(f"CDP 연결 시도 {attempt+1}/{MAX_RETRIES+1} 실패: {e}")
-                if self._pw:
-                    try:
-                        await self._pw.stop()
-                    except Exception:
-                        pass
-                    self._pw = None
-                if attempt < MAX_RETRIES:
-                    await asyncio.sleep(RETRY_DELAY)
-                else:
-                    raise ConnectionError(
-                        f"Chrome CDP 연결 실패 ({MAX_RETRIES+1}회 시도).\n"
-                        "Chrome을 --remote-debugging-port=9222 옵션으로 실행해주세요."
-                    )
-
-    async def _reconnect_if_needed(self):
-        """연결 끊김 감지 시 재연결"""
-        try:
-            # 간단한 연결 상태 확인
-            if self.page and not self.page.is_closed():
-                await self.page.evaluate("1+1")
-                return True
-        except Exception:
-            pass
-
-        logger.info("연결 끊김 감지. 재연결 시도...")
-        await self.close()
-        await self.connect()
-        await self.login()
-        return True
+        self._pw = await async_playwright().start()
+        self.browser = await self._pw.chromium.connect_over_cdp(CDP_URL)
+        self.context = self.browser.contexts[0]
 
     async def login(self, naver_id=None, naver_pw=None):
         """네이버 로그인 상태 확인 (이미 로그인된 Chrome 사용)"""
         naver_id = naver_id or os.environ.get("NAVER_ID", "")
         if not naver_id:
-            raise ValueError("NAVER_ID가 설정되지 않았습니다. .env에 추가해주세요.")
+            raise ValueError("NAVER_ID가 설정되지 않았습니다.")
 
         # 기존 탭에서 페이지 획득
         pages = self.context.pages
@@ -130,54 +70,41 @@ class NaverPoster:
         else:
             self.page = await self.context.new_page()
 
+        # 에디터 페이지로 직접 이동하여 로그인 확인
+        # (로그인 안 되면 에디터가 로드되지 않음)
         return True
 
     async def _navigate_to_editor(self, blog_id):
-        """에디터 페이지로 이동 (재시도 포함)"""
+        """에디터 페이지로 이동"""
         url = EDITOR_URL.format(blog_id=blog_id)
+        await self.page.goto(url)
+        await self.page.wait_for_load_state("networkidle")
+        await asyncio.sleep(2)
 
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                await self.page.goto(url, timeout=30000)
-                await self.page.wait_for_load_state("networkidle", timeout=20000)
-                await asyncio.sleep(2)
+        # 로그인 리디렉트 감지
+        if "nidlogin" in self.page.url or "login" in self.page.url:
+            raise RuntimeError(
+                "네이버 로그인이 필요합니다. Chrome에서 먼저 로그인해주세요."
+            )
 
-                # 로그인 리디렉트 감지
-                current_url = self.page.url
-                if "nidlogin" in current_url or "/login" in current_url:
-                    raise RuntimeError(
-                        "네이버 로그인이 필요합니다. Chrome에서 먼저 로그인해주세요."
-                    )
+        # 에디터 로드 대기
+        await self.page.wait_for_function(
+            f"() => typeof SmartEditor !== 'undefined' && SmartEditor._editors && SmartEditor._editors.{EDITOR_KEY}",
+            timeout=15000,
+        )
+        await asyncio.sleep(1)
 
-                # 에디터 로드 대기
-                await self.page.wait_for_function(
-                    f"() => typeof SmartEditor !== 'undefined' "
-                    f"&& SmartEditor._editors "
-                    f"&& SmartEditor._editors.{EDITOR_KEY}",
-                    timeout=15000,
-                )
-                await asyncio.sleep(1)
-
-                # 오버레이/팝업 제거
-                await self.page.evaluate("""() => {
-                    document.querySelectorAll(
-                        '[class*="overlay"], [class*="dim"], [class*="popup"]'
-                    ).forEach(el => {
-                        if (el.style.display !== 'none') el.remove();
-                    });
-                }""")
-
-                logger.info(f"에디터 로드 완료: {blog_id}")
-                return
-
-            except RuntimeError:
-                raise  # 로그인 필요 에러는 재시도하지 않음
-            except Exception as e:
-                logger.warning(f"에디터 로드 시도 {attempt+1} 실패: {e}")
-                if attempt < MAX_RETRIES:
-                    await asyncio.sleep(RETRY_DELAY)
-                else:
-                    raise RuntimeError(f"에디터 로드 실패 ({MAX_RETRIES+1}회 시도): {e}")
+        # 오버레이 제거 (도움말 포함)
+        await self.page.evaluate("""() => {
+            document.querySelectorAll('[class*="overlay"], [class*="dim"], [class*="help"], [class*="container__"]').forEach(el => {
+                if (el.querySelector('.se-help-title') || el.classList.toString().includes('overlay') || el.classList.toString().includes('dim')) {
+                    el.remove();
+                }
+            });
+            const closeBtn = document.querySelector('.se-help-close, button[class*="close"]');
+            if (closeBtn) closeBtn.click();
+        }""")
+        await asyncio.sleep(1)
 
     async def _set_title(self, title):
         """제목 설정 (SmartEditor API)"""
@@ -191,13 +118,8 @@ class NaverPoster:
         }}""", title)
         return result
 
-    async def _set_content(self, text_content, is_html=False):
-        """본문 설정 (SmartEditor API: focusFirstText + write)
-
-        Args:
-            text_content: 본문 내용 (마크다운 텍스트 또는 HTML)
-            is_html: True면 이미 HTML이므로 그대로 전달
-        """
+    async def _set_content(self, text_content):
+        """본문 설정 (SmartEditor API: focusFirstText + write)"""
         result = await self.page.evaluate(f"""(body) => {{
             var ed = SmartEditor._editors['{EDITOR_KEY}'];
             ed.focusFirstText();
@@ -229,74 +151,78 @@ class NaverPoster:
         if not category_no:
             return
         try:
-            await self.page.evaluate("""(catNo) => {
+            await self.page.evaluate(f"""(catNo) => {{
                 var select = document.querySelector('select[name="categoryNo"]');
-                if (select) {
+                if (select) {{
                     select.value = catNo;
                     select.dispatchEvent(new Event('change'));
-                }
-            }""", str(category_no))
-        except Exception as e:
-            logger.warning(f"카테고리 설정 실패 (무시): {e}")
+                }}
+            }}""", str(category_no))
+        except Exception:
+            pass
 
     async def _publish(self):
-        """발행 버튼 클릭 + 성공 확인"""
-        try:
-            # 발행 버튼 클릭
-            publish_btn = self.page.locator("button[class*='publish_btn']").first
-            if not await publish_btn.is_visible(timeout=3000):
-                publish_btn = self.page.locator("button:has-text('발행')").first
+        """발행 버튼 클릭"""
+        # 발행 전 오버레이 재제거
+        await self.page.evaluate("""() => {
+            document.querySelectorAll('[class*="help"], [class*="overlay"], [class*="dim"], [class*="container__"]').forEach(el => {
+                const text = el.textContent || '';
+                if (text.includes('도움말') || el.classList.toString().includes('overlay') || el.classList.toString().includes('dim')) {
+                    el.remove();
+                }
+            });
+        }""")
+        await asyncio.sleep(1)
 
-            await publish_btn.click()
-            await asyncio.sleep(2)
+        # 발행 버튼 클릭
+        publish_btn = self.page.locator("button[class*='publish_btn']").first
+        if not await publish_btn.is_visible(timeout=3000):
+            publish_btn = self.page.locator("button:has-text('발행')").first
 
-            # 확인 버튼 클릭
-            confirm_btn = self.page.locator("button[class*='confirm_btn']").first
-            if not await confirm_btn.is_visible(timeout=3000):
-                confirm_btn = self.page.locator("button:has-text('확인')").first
+        await publish_btn.click(force=True)
+        await asyncio.sleep(3)
 
+        # 확인 버튼 클릭
+        confirm_btn = self.page.locator("button.se-popup-button-confirm, button[class*='confirm']").first
+        if not await confirm_btn.is_visible(timeout=3000):
+            confirm_btn = self.page.locator("button:has-text('확인')").first
+
+        if await confirm_btn.is_visible(timeout=3000):
             await confirm_btn.click()
+        await asyncio.sleep(5)
 
-        except Exception as e:
-            return {"success": False, "error": f"발행 버튼 클릭 실패: {e}"}
-
-        # 발행 성공 대기 (최대 15초)
-        for wait_sec in [3, 5, 7]:
-            await asyncio.sleep(wait_sec)
-            final_url = self.page.url
-            if "PostView" in final_url or "logNo" in final_url:
-                logger.info(f"발행 성공: {final_url}")
-                return {"success": True, "url": final_url}
-
+        # 발행 성공 확인 (URL 변경)
         final_url = self.page.url
-        return {"success": False, "url": final_url, "error": "발행 후 URL 미변경 (타임아웃)"}
+        if "PostView" in final_url or "logNo" in final_url:
+            return {"success": True, "url": final_url}
 
-    async def post(self, title, content, blog_id=None, category_no=None,
-                   format_html=True, persona_id="yun_ung_chae"):
+        # 추가 대기
+        await asyncio.sleep(5)
+        final_url = self.page.url
+        if "PostView" in final_url or "logNo" in final_url:
+            return {"success": True, "url": final_url}
+
+        return {"success": False, "url": final_url, "error": "발행 후 URL 미변경"}
+
+    async def post(self, title, content, blog_id=None, category_no=None):
         """
         블로그 글 발행 전체 흐름
 
         Args:
             title: 글 제목
-            content: 본문 텍스트 (마크다운)
+            content: 본문 텍스트
             blog_id: 블로그 ID (없으면 NAVER_ID 사용)
             category_no: 카테고리 번호
-            format_html: True면 마크다운 -> HTML 변환 후 발행
-            persona_id: 페르소나 ID (HTML 포맷팅 시 사용)
 
         Returns:
             dict: {'success': bool, 'url': str, ...}
         """
         blog_id = blog_id or os.environ.get("NAVER_ID", "")
-        if not blog_id:
-            return {"success": False, "error": "blog_id 또는 NAVER_ID가 필요합니다."}
 
-        # 연결 확인/복구
-        if not self._connected or not self.browser:
+        if not self.browser:
             await self.connect()
-            await self.login()
 
-        await self._reconnect_if_needed()
+        await self.login()
         await self._navigate_to_editor(blog_id)
 
         # 제목 설정
@@ -304,13 +230,8 @@ class NaverPoster:
         if not title_result.get("ok"):
             return {"success": False, "error": "제목 설정 실패"}
 
-        # 본문: 마크다운 -> HTML 변환
-        if format_html:
-            html_content = format_column_html(content, persona_id)
-            content_result = await self._set_content(html_content, is_html=True)
-        else:
-            content_result = await self._set_content(content)
-
+        # 본문 설정
+        content_result = await self._set_content(content)
         if content_result.get("isEmpty"):
             return {"success": False, "error": "본문 설정 실패 (isEmpty=true)"}
 
@@ -332,25 +253,12 @@ class NaverPoster:
         return result
 
     async def close(self):
-        """연결 종료 (안전)"""
-        self._connected = False
-        try:
-            if self.browser:
-                await self.browser.close()
-        except Exception:
-            pass
-        try:
-            if self._pw:
-                await self._pw.stop()
-        except Exception:
-            pass
-        self.browser = None
-        self.context = None
-        self.page = None
-        self._pw = None
+        """연결 종료"""
+        if self.browser:
+            await self.browser.close()
+        if hasattr(self, "_pw") and self._pw:
+            await self._pw.stop()
 
-
-# -- 편의 함수 --
 
 async def quick_post(title, content, blog_id=None, category_no=None):
     """
@@ -363,8 +271,6 @@ async def quick_post(title, content, blog_id=None, category_no=None):
     """
     poster = NaverPoster()
     try:
-        await poster.connect()
-        await poster.login()
         result = await poster.post(title, content, blog_id, category_no)
         return result
     finally:
@@ -376,7 +282,7 @@ async def generate_and_post(topic, persona_id="yun_ung_chae",
                             model_id="claude-sonnet-4-6",
                             blog_id=None, category_no=None):
     """
-    키워드 -> 칼럼 생성 -> 네이버 발행 통합 함수
+    키워드 → 칼럼 생성 → 네이버 발행 통합 함수
 
     Usage:
         import asyncio
@@ -403,15 +309,10 @@ async def generate_and_post(topic, persona_id="yun_ung_chae",
             title = stripped.lstrip("#").strip()
             break
 
-    # 2. 발행 (HTML 포맷팅 포함)
+    # 2. 발행
     poster = NaverPoster()
     try:
-        await poster.connect()
-        await poster.login()
-        post_result = await poster.post(
-            title, content, blog_id, category_no,
-            format_html=True, persona_id=persona_id,
-        )
+        post_result = await poster.post(title, content, blog_id, category_no)
         post_result["generation"] = {
             "attempts": gen_result["attempts"],
             "similarity": gen_result["similarity_check"],
