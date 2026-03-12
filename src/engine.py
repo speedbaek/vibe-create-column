@@ -127,21 +127,29 @@ def load_persona_rules(persona_id):
         if cta:
             mid_options = cta.get('mid_text_options', [])
             end_options = cta.get('end_text_options', [])
-            notice_title = cta.get('notice_post_title', '')
-            philosophy_title = cta.get('philosophy_post_title', '')
+            links = cta.get('links', {})
 
             rules_parts.append("## CTA (공지글 유도) 규칙")
             rules_parts.append(f"- 스타일: {cta.get('style', 'non-aggressive')}")
+
+            # 사용 가능한 링크 마커 안내
+            if links:
+                rules_parts.append("- 사용 가능한 링크 마커 (본문에 그대로 삽입하면 발행 시 자동으로 링크카드로 변환됩니다):")
+                for link_key, link_info in links.items():
+                    marker = link_info.get('marker', '')
+                    short_title = link_info.get('short_title', '')
+                    rules_parts.append(f"  - {marker} → {short_title}")
+
             if mid_options:
                 mid = random.choice(mid_options)
-                rules_parts.append(f"- 글 중간 유도 문구 (이것을 참고해서 자연스럽게): \"{mid}\"")
+                rules_parts.append(f"- 글 중간에 아래 유도 문구를 자연스럽게 삽입하세요 (링크 마커 포함):\n\"{mid}\"")
             if end_options:
                 end = random.choice(end_options)
-                rules_parts.append(f"- 글 끝 안내 문구 (이것을 참고해서 간결하게): \"{end}\"")
-            if notice_title:
-                rules_parts.append(f"- 연결할 공지글 제목: [{notice_title}]")
-            if philosophy_title:
-                rules_parts.append(f"- 연결할 철학글 제목: [{philosophy_title}]")
+                rules_parts.append(f"- 글 끝부분에 아래 안내 문구를 삽입하세요 (링크 마커 포함):\n\"{end}\"")
+
+            phone = cta.get('phone', '')
+            if phone:
+                rules_parts.append(f"- 글 맨 끝에 전화번호를 안내하세요: ※ 윤웅채 변리사 직통전화 ※\n{phone}")
 
         # 어휘 선호도
         vocab = data.get('vocabulary_preferences', {})
@@ -154,6 +162,53 @@ def load_persona_rules(persona_id):
 
     except (json.JSONDecodeError, IOError) as e:
         return f"- 설정 파일 로드 실패: {e}"
+
+
+def replace_link_markers(text, persona_id):
+    """
+    생성된 텍스트에서 링크 마커를 실제 URL로 치환
+
+    마커 형태: {{LINK:철학글}}, {{LINK:추천글}}, {{LINK:상담글}}
+    치환 결과: 네이버 블로그 링크 텍스트 블록
+
+    Args:
+        text: 생성된 칼럼 텍스트
+        persona_id: 페르소나 ID
+
+    Returns:
+        str: 링크 마커가 치환된 텍스트
+    """
+    json_path = os.path.join(PERSONAS_DIR, f"{persona_id}.json")
+    if not os.path.exists(json_path):
+        return text
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return text
+
+    cta = data.get('cta_config', {})
+    links = cta.get('links', {})
+
+    if not links:
+        return text
+
+    # 마커 → 링크 블록 치환
+    for link_key, link_info in links.items():
+        marker = link_info.get('marker', '')
+        if not marker or marker not in text:
+            continue
+
+        title = link_info.get('title', '')
+        url = link_info.get('url', '')
+
+        # 네이버 블로그 링크 텍스트 블록 생성
+        link_block = f"<{link_info.get('short_title', title)}>\n{title}\n{url}"
+
+        text = text.replace(marker, link_block)
+
+    return text
 
 
 def _truncate_to_limit(text, max_chars):
