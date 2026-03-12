@@ -94,12 +94,17 @@ class NaverPoster:
         )
         await asyncio.sleep(1)
 
-        # 오버레이 제거
+        # 오버레이 제거 (도움말 포함)
         await self.page.evaluate("""() => {
-            document.querySelectorAll('[class*="overlay"], [class*="dim"]').forEach(el => {
-                if (el.style.display !== 'none') el.remove();
+            document.querySelectorAll('[class*="overlay"], [class*="dim"], [class*="help"], [class*="container__"]').forEach(el => {
+                if (el.querySelector('.se-help-title') || el.classList.toString().includes('overlay') || el.classList.toString().includes('dim')) {
+                    el.remove();
+                }
             });
+            const closeBtn = document.querySelector('.se-help-close, button[class*="close"]');
+            if (closeBtn) closeBtn.click();
         }""")
+        await asyncio.sleep(1)
 
     async def _set_title(self, title):
         """제목 설정 (SmartEditor API)"""
@@ -158,21 +163,33 @@ class NaverPoster:
 
     async def _publish(self):
         """발행 버튼 클릭"""
+        # 발행 전 오버레이 재제거
+        await self.page.evaluate("""() => {
+            document.querySelectorAll('[class*="help"], [class*="overlay"], [class*="dim"], [class*="container__"]').forEach(el => {
+                const text = el.textContent || '';
+                if (text.includes('도움말') || el.classList.toString().includes('overlay') || el.classList.toString().includes('dim')) {
+                    el.remove();
+                }
+            });
+        }""")
+        await asyncio.sleep(1)
+
         # 발행 버튼 클릭
         publish_btn = self.page.locator("button[class*='publish_btn']").first
-        if not await publish_btn.is_visible():
+        if not await publish_btn.is_visible(timeout=3000):
             publish_btn = self.page.locator("button:has-text('발행')").first
 
-        await publish_btn.click()
-        await asyncio.sleep(2)
+        await publish_btn.click(force=True)
+        await asyncio.sleep(3)
 
         # 확인 버튼 클릭
-        confirm_btn = self.page.locator("button[class*='confirm_btn']").first
-        if not await confirm_btn.is_visible():
+        confirm_btn = self.page.locator("button.se-popup-button-confirm, button[class*='confirm']").first
+        if not await confirm_btn.is_visible(timeout=3000):
             confirm_btn = self.page.locator("button:has-text('확인')").first
 
-        await confirm_btn.click()
-        await asyncio.sleep(3)
+        if await confirm_btn.is_visible(timeout=3000):
+            await confirm_btn.click()
+        await asyncio.sleep(5)
 
         # 발행 성공 확인 (URL 변경)
         final_url = self.page.url
