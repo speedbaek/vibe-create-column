@@ -11,7 +11,7 @@ load_dotenv(override=True)
 
 # 엔진 모듈 로드
 try:
-    from src.engine import generate_column, generate_column_stream, generate_hooking_title
+    from src.engine import generate_column, generate_column_stream, generate_hooking_title, replace_link_markers
     ENGINE_LOADED = True
 except ImportError as e:
     ENGINE_LOADED = False
@@ -794,6 +794,8 @@ with tab2:
                 ):
                     full_text += chunk
                     result_container.markdown(full_text + "▌")
+                # 링크 마커 치환
+                full_text = replace_link_markers(full_text, selected_persona_id)
                 result_container.markdown(full_text)
 
                 elapsed = time.time() - start_time

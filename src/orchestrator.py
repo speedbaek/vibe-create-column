@@ -8,7 +8,7 @@ import os
 import json
 from datetime import datetime
 
-from src.engine import generate_column_with_validation, generate_column, generate_hooking_title
+from src.engine import generate_column_with_validation, generate_column, generate_hooking_title, replace_link_markers
 from src.similarity import check_similarity
 from src.formatter import format_column_html, format_column_preview
 
@@ -62,6 +62,9 @@ def generate_preview(topic, persona_id, persona_name,
     )
 
     content = result["content"]
+
+    # 2.5. 링크 마커 치환
+    content = replace_link_markers(content, persona_id)
 
     # 3. 제목 결정: 후킹 제목 첫 번째 후보 > 본문 헤딩 > 키워드
     if title_candidates:
