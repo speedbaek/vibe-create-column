@@ -197,11 +197,13 @@ with st.sidebar:
     include_images = st.toggle("이미지 포함", value=False)
 
     if include_images:
+        use_dalle = st.toggle("DALL-E 3 사용", value=bool(openai_key),
+                              help="OpenAI API 키 필요. OFF면 플레이스홀더 이미지")
         THUMB_PRESETS = {
-            "dark_minimal": "🌑 다크 미니멀",
-            "light_clean": "☀️ 라이트 클린",
-            "warm_professional": "🔶 웜 프로페셔널",
-            "blue_corporate": "🔷 블루 기업형",
+            "dark_minimal": "다크 미니멀",
+            "light_clean": "라이트 클린",
+            "warm_professional": "웜 프로페셔널",
+            "blue_corporate": "블루 기업형",
         }
         thumbnail_preset = st.selectbox(
             "썸네일 스타일",
@@ -210,6 +212,7 @@ with st.sidebar:
         )
         image_count = st.slider("본문 이미지 수", 3, 7, 4)
     else:
+        use_dalle = False
         thumbnail_preset = None
         image_count = 0
 
@@ -335,6 +338,7 @@ with tab1:
                             user_image_paths=uploaded_image_paths if uploaded_image_paths else None,
                             image_count=image_count if include_images else None,
                             thumbnail_preset=thumbnail_preset,
+                            use_dalle=use_dalle if include_images else False,
                         )
                         result["publish_mode"] = item.get("publish_mode", "immediate")
                         st.session_state.generated_results.append(result)

@@ -9,18 +9,12 @@ beautifulsoup4
 requests
 lxml
 pandas
-scikit-learn
 
 # Image Processing
 Pillow
 
-# Blog Posting (Selenium)
-selenium
-webdriver-manager
-pyperclip
+# Blog Posting (Playwright CDP)
+playwright
 
 # Scheduling
 APScheduler
-
-# Scraper (legacy)
-chromadb

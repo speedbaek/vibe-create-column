@@ -16,7 +16,8 @@ from src.formatter import format_column_html, format_column_preview
 def generate_preview(topic, persona_id, persona_name,
                      model_id="claude-sonnet-4-6", temperature=0.7,
                      include_images=False, user_image_paths=None,
-                     image_count=4, thumbnail_preset=None):
+                     image_count=4, thumbnail_preset=None,
+                     use_dalle=None):
     """
     키워드로 칼럼 생성 + 유사도 검증 + HTML 포맷팅
 
@@ -62,12 +63,14 @@ def generate_preview(topic, persona_id, persona_name,
                 content=content,
                 image_count=image_count or 4,
                 user_image_paths=user_image_paths,
+                use_dalle=use_dalle,
             )
             if thumbnail_preset:
                 thumb = generate_thumbnail(
                     topic=topic,
                     subtitle="",
                     preset=thumbnail_preset,
+                    use_dalle=use_dalle,
                 )
                 image_data["thumbnail"] = thumb
         except Exception:
