@@ -52,6 +52,46 @@ def _extract_subtitles(content):
     return re.findall(r'^##\s+(.+)$', content, re.MULTILINE)
 
 
+def _extract_key_sentences(content, topic, count=4):
+    """소제목이 없을 때 본문에서 카드 이미지용 핵심 문장 추출
+
+    짧고 임팩트 있는 문장을 다양하게 추출 (키워드 반복 방지)
+    """
+    sentences = []
+    for line in content.split("\n"):
+        s = line.strip()
+        # 빈 줄, 마크다운 기호, URL, 너무 짧은 줄 제외
+        if not s or s.startswith("#") or s.startswith("-") or s.startswith("*"):
+            continue
+        if s.startswith("http") or len(s) < 10 or len(s) > 60:
+            continue
+        # 마크다운 볼드/링크 제거
+        clean = re.sub(r'\*\*(.+?)\*\*', r'\1', s)
+        clean = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', clean)
+        clean = clean.strip('""\u201c\u201d')
+        if 10 <= len(clean) <= 50:
+            sentences.append(clean)
+
+    if not sentences:
+        # 길이 제한 완화해서 재시도
+        for line in content.split("\n"):
+            s = line.strip()
+            if not s or s.startswith("#") or s.startswith("-"):
+                continue
+            clean = re.sub(r'\*\*(.+?)\*\*', r'\1', s)
+            if 8 <= len(clean) <= 80:
+                # 너무 길면 앞부분만
+                sentences.append(clean[:45] + "..." if len(clean) > 45 else clean)
+
+    # 중복 제거 + 균등 선택
+    unique = list(dict.fromkeys(sentences))
+    if len(unique) <= count:
+        return unique if unique else [topic]
+
+    step = len(unique) // count
+    return [unique[i * step] for i in range(count)]
+
+
 def _get_font(name, size):
     """PIL ImageFont 로드"""
     from PIL import ImageFont
@@ -403,6 +443,9 @@ def generate_blog_images(topic, content="", image_count=4, user_image_paths=None
         return {"body_images": body_images, "total_count": len(body_images)}
 
     subtitles = _extract_subtitles(content)
+    if not subtitles:
+        # 소제목이 없으면 본문에서 핵심 문장 추출 (키워드 반복 방지)
+        subtitles = _extract_key_sentences(content, topic, remaining)
     if not subtitles:
         subtitles = [topic]
 

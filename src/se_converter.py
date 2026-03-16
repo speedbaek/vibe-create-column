@@ -332,12 +332,34 @@ def markdown_to_se_components(text, image_urls=None):
     img_before_line = {}  # line_index → image_source (URL 문자열 또는 네이티브 dict)
     img_used_indices = set()  # 사용된 image_urls 인덱스
     if image_urls and heading_line_indices:
-        # 이미지와 소제목 1:1 매핑 (이미지 텍스트 = 바로 아래 소제목)
+        # 이미지와 소제목 1:1 매핑
         targets = heading_line_indices
         for i, img_source in enumerate(image_urls):
             if i < len(targets):
                 img_before_line[targets[i]] = img_source
                 img_used_indices.add(i)
+
+    # 소제목이 부족해서 배치 안 된 이미지 → 본문 중간에 균등 배치
+    if image_urls:
+        unplaced = [i for i in range(len(image_urls)) if i not in img_used_indices]
+        if unplaced and len(lines) > 0:
+            # 빈 줄 위치를 찾아서 균등 배치 (문단 사이)
+            empty_line_indices = [i for i, line in enumerate(lines) if not line.strip() and i > 5]
+            if empty_line_indices and len(empty_line_indices) >= len(unplaced):
+                # 균등 간격으로 배치
+                step = len(empty_line_indices) // (len(unplaced) + 1)
+                for j, img_idx in enumerate(unplaced):
+                    target_pos = empty_line_indices[min((j + 1) * step, len(empty_line_indices) - 1)]
+                    img_before_line[target_pos] = image_urls[img_idx]
+                    img_used_indices.add(img_idx)
+            elif not heading_line_indices:
+                # 소제목이 아예 없으면 전체 라인을 균등 분할
+                total_lines = len(lines)
+                step = total_lines // (len(unplaced) + 1)
+                for j, img_idx in enumerate(unplaced):
+                    target_line = (j + 1) * step
+                    img_before_line[target_line] = image_urls[img_idx]
+                    img_used_indices.add(img_idx)
 
     def _flush_text():
         nonlocal current_paragraphs
@@ -435,10 +457,17 @@ def markdown_to_se_components(text, image_urls=None):
     # 나머지 flush
     _flush_text()
 
-    # 남은 이미지 (소제목이 부족해서 배치 안 된 것) → 맨 끝에 추가
+    # 남은 이미지 → 마지막 텍스트 앞에 삽입 (끝에 몰리지 않도록)
     if image_urls:
-        for i, img_source in enumerate(image_urls):
-            if i not in img_used_indices:
+        remaining_imgs = [image_urls[i] for i in range(len(image_urls)) if i not in img_used_indices]
+        if remaining_imgs and len(components) > 2:
+            # 끝에서 1/3 지점에 삽입
+            insert_pos = max(len(components) * 2 // 3, 1)
+            for img_source in remaining_imgs:
+                components.insert(insert_pos, _image_component(img_source))
+                insert_pos += 1
+        elif remaining_imgs:
+            for img_source in remaining_imgs:
                 components.append(_image_component(img_source))
 
     return components

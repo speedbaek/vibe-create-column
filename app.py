@@ -34,6 +34,9 @@ try:
     from src.scheduler import (
         add_job, load_jobs, get_pending_jobs, execute_pending_jobs,
         create_interval_schedule, update_job_status, clear_completed,
+        clear_all as clear_all_jobs, get_all_jobs, remove_job,
+        start_scheduler, stop_scheduler, is_scheduler_running,
+        get_scheduler_status, execute_job,
     )
     SCHEDULER_LOADED = True
 except ImportError:
@@ -485,120 +488,338 @@ with tab1:
     # 구분선
     st.markdown("---")
 
-    # 배치 발행 (접기)
-    with st.expander("📋 배치 발행 (여러 키워드 순차 발행)", expanded=False):
-        st.caption("여러 키워드를 등록하고 순차적으로 원클릭 발행합니다.")
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 배치 & 예약 발행
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    with st.expander("📋 배치 & 예약 발행", expanded=False):
+        st.caption("여러 키워드를 등록하고, 각각 즉시 발행 또는 예약 발행할 수 있습니다.")
 
         if "batch_items" not in st.session_state:
             st.session_state.batch_items = []
 
-        col_input, col_add = st.columns([6, 1])
+        # --- 키워드 입력 ---
+        st.markdown("##### ➕ 키워드 추가")
+        col_input, col_mode, col_add = st.columns([4, 2, 1])
         with col_input:
-            new_topic = st.text_input("키워드/주제", placeholder="예: 스타트업 상표등록 필수인 이유", label_visibility="collapsed")
+            new_topic = st.text_input(
+                "키워드", placeholder="예: 스타트업 상표등록 필수인 이유",
+                label_visibility="collapsed", key="batch_new_topic",
+            )
+        with col_mode:
+            new_mode = st.selectbox(
+                "모드", options=["immediate", "scheduled"],
+                format_func=lambda x: "⚡ 즉시 발행" if x == "immediate" else "🕐 예약 발행",
+                label_visibility="collapsed", key="batch_new_mode",
+            )
         with col_add:
-            if st.button("➕", use_container_width=True):
-                if new_topic.strip():
-                    auto_cat = None
-                    if CATEGORY_LOADED:
-                        auto_cat = auto_classify(new_topic.strip(), persona_id=selected_persona_id)
-                    st.session_state.batch_items.append({
-                        "topic": new_topic.strip(),
-                        "category": auto_cat,
-                    })
-                    st.rerun()
+            add_clicked = st.button("➕", use_container_width=True, key="batch_add_btn")
 
-        # 등록된 키워드 표시
+        # 예약 시간 입력 (예약 모드일 때만)
+        scheduled_dt = None
+        if new_mode == "scheduled":
+            col_date, col_time = st.columns(2)
+            with col_date:
+                sched_date = st.date_input("예약 날짜", value=datetime.now().date(), key="batch_sched_date")
+            with col_time:
+                sched_time = st.time_input("예약 시간", value=(datetime.now() + timedelta(hours=1)).time(), key="batch_sched_time")
+            scheduled_dt = datetime.combine(sched_date, sched_time)
+
+        if add_clicked and new_topic.strip():
+            auto_cat = None
+            if CATEGORY_LOADED:
+                auto_cat = auto_classify(new_topic.strip(), persona_id=selected_persona_id)
+            item = {
+                "topic": new_topic.strip(),
+                "category": auto_cat,
+                "mode": new_mode,
+                "scheduled_time": scheduled_dt.isoformat() if scheduled_dt else None,
+            }
+            st.session_state.batch_items.append(item)
+            st.rerun()
+
+        # --- 간격 예약 일괄 등록 ---
+        with st.popover("🔄 간격 예약 일괄 등록"):
+            st.caption("등록된 키워드를 일정 간격으로 예약 발행합니다.")
+            interval_start_date = st.date_input("시작 날짜", value=datetime.now().date(), key="interval_date")
+            interval_start_time = st.time_input("시작 시간", value=datetime.now().time(), key="interval_time")
+            interval_min = st.number_input("발행 간격 (분)", min_value=5, max_value=1440, value=60, step=5, key="interval_min")
+            if st.button("✅ 간격 예약 적용", key="interval_apply"):
+                start_dt = datetime.combine(interval_start_date, interval_start_time)
+                for idx, item in enumerate(st.session_state.batch_items):
+                    item["mode"] = "scheduled"
+                    item["scheduled_time"] = (start_dt + timedelta(minutes=interval_min * idx)).isoformat()
+                st.rerun()
+
+        # --- 등록된 키워드 목록 ---
         if st.session_state.batch_items:
+            st.markdown("##### 📝 등록된 키워드")
             for idx, item in enumerate(st.session_state.batch_items):
-                col_num, col_topic, col_del = st.columns([0.5, 6, 0.5])
+                col_num, col_topic, col_mode_disp, col_time_disp, col_del = st.columns([0.4, 3.5, 1.5, 2, 0.6])
                 with col_num:
                     st.write(f"**{idx+1}**")
                 with col_topic:
                     st.write(item["topic"])
+                with col_mode_disp:
+                    if item.get("mode") == "scheduled":
+                        st.markdown('<span class="status-badge badge-ready">🕐 예약</span>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span class="status-badge badge-pending">⚡ 즉시</span>', unsafe_allow_html=True)
+                with col_time_disp:
+                    if item.get("scheduled_time"):
+                        try:
+                            dt = datetime.fromisoformat(item["scheduled_time"])
+                            st.write(dt.strftime("%m/%d %H:%M"))
+                        except (ValueError, TypeError):
+                            st.write("-")
+                    else:
+                        st.write("-")
                 with col_del:
-                    if st.button("🗑️", key=f"del_{idx}", use_container_width=True):
+                    if st.button("🗑️", key=f"batch_del_{idx}", use_container_width=True):
                         st.session_state.batch_items.pop(idx)
                         st.rerun()
 
-            col_batch, col_clear = st.columns([3, 1])
-            with col_batch:
-                batch_clicked = st.button("🚀 배치 원클릭 발행", type="primary", use_container_width=True)
+            st.markdown("---")
+
+            # --- 발행 방법 선택 ---
+            col_immediate, col_schedule, col_clear = st.columns([2, 2, 1])
+
+            with col_immediate:
+                batch_now_clicked = st.button(
+                    "⚡ 즉시 항목만 발행",
+                    type="primary", use_container_width=True,
+                    key="batch_immediate_btn",
+                )
+            with col_schedule:
+                if SCHEDULER_LOADED:
+                    batch_schedule_clicked = st.button(
+                        "🕐 예약 등록 & 스케줄러 시작",
+                        use_container_width=True,
+                        key="batch_schedule_btn",
+                    )
+                else:
+                    batch_schedule_clicked = False
+                    st.button("🕐 예약 (스케줄러 미로드)", disabled=True, use_container_width=True)
             with col_clear:
-                if st.button("🗑️ 전체 삭제", use_container_width=True):
+                if st.button("🗑️ 전체 삭제", use_container_width=True, key="batch_clear_all"):
                     st.session_state.batch_items = []
                     st.rerun()
 
-            if batch_clicked and env_ok:
-                try:
-                    from src.naver_poster import NaverPoster
+            # --- 즉시 발행 실행 ---
+            if batch_now_clicked and env_ok:
+                immediate_items = [it for it in st.session_state.batch_items if it.get("mode") != "scheduled"]
+                if not immediate_items:
+                    st.warning("즉시 발행 키워드가 없습니다. 모드를 확인해주세요.")
+                else:
+                    try:
+                        from src.naver_poster import NaverPoster
+                        batch_progress = st.progress(0)
+                        batch_status = st.empty()
+                        batch_results = []
+                        total_items = len(immediate_items)
 
-                    batch_progress = st.progress(0)
-                    batch_status = st.empty()
-                    batch_results = []
+                        for idx, item in enumerate(immediate_items):
+                            batch_status.info(f"[{idx+1}/{total_items}] '{item['topic']}' 발행 중...")
 
-                    total_items = len(st.session_state.batch_items)
-                    for idx, item in enumerate(st.session_state.batch_items):
-                        batch_status.info(f"[{idx+1}/{total_items}] '{item['topic']}' 발행 중...")
+                            cat = item.get("category")
+                            cat_no = cat.get("category_no") if cat else None
 
-                        step_logs = []
-                        step_log_container = st.empty()
+                            def _do_batch(topic, c_no):
+                                poster = NaverPoster(progress_callback=None, blog_key=selected_blog_key)
+                                try:
+                                    return poster.one_click_post(
+                                        topic=topic,
+                                        persona_id=selected_persona_id,
+                                        persona_name=selected_persona_name,
+                                        model_id=selected_model,
+                                        temperature=temperature,
+                                        include_images=include_images,
+                                        image_count=image_count if include_images else 0,
+                                        blog_id=naver_id,
+                                        category_no=c_no,
+                                    )
+                                finally:
+                                    poster.close()
 
-                        def step_progress(step, total, msg, _idx=idx, _total=total_items):
-                            step_logs.append(msg)
-                            step_log_container.code("\n".join(step_logs[-5:]), language="text")
-                            overall = (_idx + step / total) / _total
-                            batch_progress.progress(min(overall, 1.0))
+                            result = run_in_thread(_do_batch, item["topic"], cat_no)
+                            batch_results.append({"topic": item["topic"], **result})
+                            batch_progress.progress((idx + 1) / total_items)
 
-                        cat = item.get("category")
-                        cat_no = cat.get("category_no") if cat else None
+                            if idx < total_items - 1:
+                                import time as _time
+                                _time.sleep(5)
 
-                        def _do_batch(topic, c_no):
-                            poster = NaverPoster(progress_callback=step_progress)
-                            try:
-                                return poster.one_click_post(
-                                    topic=topic,
-                                    persona_id=selected_persona_id,
-                                    persona_name=selected_persona_name,
-                                    model_id=selected_model,
-                                    temperature=temperature,
-                                    include_images=include_images,
-                                    image_count=image_count if include_images else 0,
-                                    blog_id=naver_id,
-                                    category_no=c_no,
-                                )
-                            finally:
-                                poster.close()
+                        batch_progress.progress(1.0)
+                        batch_status.empty()
 
-                        result = run_in_thread(_do_batch, item["topic"], cat_no)
-                        batch_results.append({"topic": item["topic"], **result})
+                        success_count = sum(1 for r in batch_results if r.get("success"))
+                        fail_count = len(batch_results) - success_count
+                        if success_count > 0:
+                            st.success(f"✅ {success_count}건 발행 성공!")
+                        if fail_count > 0:
+                            st.warning(f"⚠️ {fail_count}건 발행 실패")
+                        for r in batch_results:
+                            if r.get("success"):
+                                st.write(f"✅ **{r.get('title', r['topic'])[:40]}** → {r.get('url', '')}")
+                            else:
+                                st.write(f"❌ **{r['topic'][:40]}** → {r.get('error', '알 수 없는 오류')}")
 
-                        step_log_container.empty()
+                        # 발행 완료된 즉시 항목 제거
+                        st.session_state.batch_items = [
+                            it for it in st.session_state.batch_items if it.get("mode") == "scheduled"
+                        ]
 
-                        if idx < total_items - 1:
-                            import time as _time
-                            _time.sleep(5)
+                    except ImportError:
+                        st.error("playwright가 설치되어 있지 않습니다.")
+                    except Exception as e:
+                        st.error(f"오류: {type(e).__name__}: {e}")
 
-                    batch_progress.progress(1.0)
-                    batch_status.empty()
+            # --- 예약 등록 & 스케줄러 시작 ---
+            if batch_schedule_clicked and env_ok and SCHEDULER_LOADED:
+                scheduled_items = [it for it in st.session_state.batch_items if it.get("mode") == "scheduled"]
+                immediate_to_schedule = [it for it in st.session_state.batch_items if it.get("mode") != "scheduled"]
 
-                    success_count = sum(1 for r in batch_results if r.get("success"))
-                    fail_count = len(batch_results) - success_count
+                registered = 0
+                # 예약 항목 등록
+                for item in scheduled_items:
+                    cat = item.get("category")
+                    cat_no = cat.get("category_no") if cat else None
+                    add_job(
+                        topic=item["topic"],
+                        persona_id=selected_persona_id,
+                        persona_name=selected_persona_name,
+                        blog_key=selected_blog_key,
+                        model_id=selected_model,
+                        temperature=temperature,
+                        include_images=include_images,
+                        image_count=image_count if include_images else 0,
+                        category_no=cat_no,
+                        scheduled_time=item.get("scheduled_time"),
+                    )
+                    registered += 1
 
-                    if success_count > 0:
-                        st.success(f"✅ {success_count}건 발행 성공!")
-                    if fail_count > 0:
-                        st.warning(f"⚠️ {fail_count}건 발행 실패")
+                # 즉시 항목도 즉시 발행으로 등록
+                for item in immediate_to_schedule:
+                    cat = item.get("category")
+                    cat_no = cat.get("category_no") if cat else None
+                    add_job(
+                        topic=item["topic"],
+                        persona_id=selected_persona_id,
+                        persona_name=selected_persona_name,
+                        blog_key=selected_blog_key,
+                        model_id=selected_model,
+                        temperature=temperature,
+                        include_images=include_images,
+                        image_count=image_count if include_images else 0,
+                        category_no=cat_no,
+                        scheduled_time=None,
+                    )
+                    registered += 1
 
-                    for r in batch_results:
-                        if r.get("success"):
-                            st.write(f"✅ **{r.get('title', r['topic'])[:40]}** → {r.get('url', '')}")
-                        else:
-                            st.write(f"❌ **{r['topic'][:40]}** → {r.get('error', '알 수 없는 오류')}")
+                # 스케줄러 시작
+                def _sched_log(msg):
+                    print(f"[Scheduler] {msg}")
 
-                except ImportError:
-                    st.error("playwright가 설치되어 있지 않습니다.")
-                except Exception as e:
-                    st.error(f"오류: {type(e).__name__}: {e}")
+                started = start_scheduler(check_interval=30, log_callback=_sched_log)
+
+                st.session_state.batch_items = []
+                if started:
+                    st.success(f"✅ {registered}건 등록 완료! 스케줄러가 시작되었습니다.")
+                else:
+                    st.info(f"✅ {registered}건 등록 완료! (스케줄러 이미 실행 중)")
+                st.rerun()
+
+        # --- 스케줄러 상태 & 작업 현황 ---
+        if SCHEDULER_LOADED:
+            st.markdown("---")
+            st.markdown("##### 📊 스케줄러 & 작업 현황")
+
+            status = get_scheduler_status()
+
+            # 스케줄러 ON/OFF
+            col_status, col_toggle = st.columns([4, 1])
+            with col_status:
+                if status["running"]:
+                    st.markdown("🟢 **스케줄러 실행 중** (30초마다 예약 확인)")
+                else:
+                    st.markdown("🔴 **스케줄러 꺼짐**")
+
+                if status["next_scheduled"]:
+                    try:
+                        next_dt = datetime.fromisoformat(status["next_scheduled"])
+                        st.caption(f"다음 예약: {next_dt.strftime('%Y-%m-%d %H:%M')}")
+                    except (ValueError, TypeError):
+                        pass
+
+            with col_toggle:
+                if status["running"]:
+                    if st.button("⏹️ 중지", key="sched_stop", use_container_width=True):
+                        stop_scheduler()
+                        st.rerun()
+                else:
+                    if st.button("▶️ 시작", key="sched_start", use_container_width=True):
+                        def _sched_log2(msg):
+                            print(f"[Scheduler] {msg}")
+                        start_scheduler(check_interval=30, log_callback=_sched_log2)
+                        st.rerun()
+
+            # 상태 요약
+            col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+            with col_s1:
+                st.metric("대기", status["pending"])
+            with col_s2:
+                st.metric("진행 중", status["publishing"])
+            with col_s3:
+                st.metric("완료", status["published"])
+            with col_s4:
+                st.metric("실패", status["failed"])
+
+            # 작업 목록
+            all_jobs = get_all_jobs()
+            if all_jobs:
+                for job in all_jobs[-20:]:
+                    status_emoji = {
+                        "pending": "🟡", "publishing": "🔵",
+                        "published": "🟢", "failed": "🔴",
+                    }.get(job.get("status", ""), "⚪")
+                    status_text = {
+                        "pending": "대기", "publishing": "진행 중",
+                        "published": "완료", "failed": "실패",
+                    }.get(job.get("status", ""), job.get("status", ""))
+
+                    time_str = ""
+                    if job.get("scheduled_time"):
+                        try:
+                            dt = datetime.fromisoformat(job["scheduled_time"])
+                            time_str = f" | 예약: {dt.strftime('%m/%d %H:%M')}"
+                        except (ValueError, TypeError):
+                            pass
+
+                    result_str = ""
+                    if job.get("result_url"):
+                        result_str = f" → [{job['result_url']}]({job['result_url']})"
+                    elif job.get("error"):
+                        result_str = f" → {job['error'][:50]}"
+
+                    col_j1, col_j2 = st.columns([6, 1])
+                    with col_j1:
+                        st.write(f"{status_emoji} **#{job['id']}** {job['topic'][:40]} ({status_text}{time_str}){result_str}")
+                    with col_j2:
+                        if job.get("status") == "pending":
+                            if st.button("🗑️", key=f"job_del_{job['id']}", use_container_width=True):
+                                remove_job(job["id"])
+                                st.rerun()
+
+                # 정리 버튼
+                col_clean1, col_clean2 = st.columns(2)
+                with col_clean1:
+                    if st.button("🧹 완료/실패 정리", key="clean_done", use_container_width=True):
+                        removed = clear_completed()
+                        st.success(f"{removed}건 정리 완료")
+                        st.rerun()
+                with col_clean2:
+                    if st.button("🗑️ 전체 작업 삭제", key="clean_all", use_container_width=True):
+                        clear_all_jobs()
+                        st.rerun()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

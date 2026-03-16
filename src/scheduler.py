@@ -1,19 +1,25 @@
 """
-예약 발행 스케줄러
-- 예약된 발행 작업을 관리하고 실행
+예약 발행 스케줄러 (Sync 버전)
 - JSON 파일 기반 작업 큐
-- 간격 발행 (n분 간격) 지원
+- 백그라운드 스레드로 예약 시간 도래 시 자동 발행
+- Playwright sync API 사용
 """
 
 import os
 import json
-import asyncio
 import threading
+import time
+import sys
+import asyncio
 from datetime import datetime, timedelta
 
 
 SCHEDULE_DIR = "outputs/schedules"
 SCHEDULE_FILE = os.path.join(SCHEDULE_DIR, "jobs.json")
+
+_scheduler_thread = None
+_scheduler_running = False
+_scheduler_lock = threading.Lock()
 
 
 def _ensure_dir():
@@ -21,7 +27,6 @@ def _ensure_dir():
 
 
 def load_jobs():
-    """예약 작업 목록 로드"""
     _ensure_dir()
     if not os.path.exists(SCHEDULE_FILE):
         return []
@@ -33,57 +38,66 @@ def load_jobs():
 
 
 def save_jobs(jobs):
-    """예약 작업 목록 저장"""
     _ensure_dir()
     with open(SCHEDULE_FILE, "w", encoding="utf-8") as f:
         json.dump(jobs, f, ensure_ascii=False, indent=2)
 
 
-def add_job(title, content, blog_id, category_no=None,
-            scheduled_time=None, status="pending"):
+def _next_id():
+    jobs = load_jobs()
+    if not jobs:
+        return 1
+    return max(j.get("id", 0) for j in jobs) + 1
+
+
+def add_job(topic, persona_id, persona_name, blog_key,
+            model_id="claude-sonnet-4-6", temperature=0.7,
+            include_images=True, image_count=4,
+            category_no=None, scheduled_time=None,
+            override_title=None):
     """
     예약 작업 추가
 
     Args:
-        title: 글 제목
-        content: 본문 텍스트
-        blog_id: 블로그 ID
-        category_no: 카테고리 번호
-        scheduled_time: 예약 시간 (ISO format 문자열). None이면 즉시 발행 대기.
-        status: pending / publishing / published / failed
-
-    Returns:
-        dict: 추가된 작업 정보
+        topic: 키워드/주제
+        scheduled_time: 예약 시간 (ISO format). None이면 즉시 발행.
     """
     jobs = load_jobs()
-
     job = {
-        "id": len(jobs) + 1,
-        "title": title,
-        "content": content,
-        "blog_id": blog_id,
+        "id": _next_id(),
+        "topic": topic,
+        "persona_id": persona_id,
+        "persona_name": persona_name,
+        "blog_key": blog_key,
+        "model_id": model_id,
+        "temperature": temperature,
+        "include_images": include_images,
+        "image_count": image_count,
         "category_no": category_no,
         "scheduled_time": scheduled_time,
-        "status": status,
+        "override_title": override_title,
+        "mode": "scheduled" if scheduled_time else "immediate",
+        "status": "pending",
         "created_at": datetime.now().isoformat(),
         "published_at": None,
         "result_url": None,
+        "result_title": None,
         "error": None,
     }
-
     jobs.append(job)
     save_jobs(jobs)
     return job
 
 
-def update_job_status(job_id, status, result_url=None, error=None):
-    """작업 상태 업데이트"""
+def update_job_status(job_id, status, result_url=None, result_title=None, error=None):
     jobs = load_jobs()
     for job in jobs:
         if job["id"] == job_id:
             job["status"] = status
             if result_url:
                 job["result_url"] = result_url
+            if result_title:
+                job["result_title"] = result_title
             if error:
                 job["error"] = error
             if status == "published":
@@ -97,134 +111,232 @@ def get_pending_jobs():
     jobs = load_jobs()
     now = datetime.now()
     pending = []
-
     for job in jobs:
         if job["status"] != "pending":
             continue
-
-        if job["scheduled_time"]:
-            sched_time = datetime.fromisoformat(job["scheduled_time"])
-            if sched_time <= now:
+        st = job.get("scheduled_time")
+        if st:
+            try:
+                sched_time = datetime.fromisoformat(st)
+                if sched_time <= now:
+                    pending.append(job)
+            except (ValueError, TypeError):
                 pending.append(job)
         else:
-            # scheduled_time이 없으면 즉시 발행 대상
             pending.append(job)
-
+    pending.sort(key=lambda j: j.get("scheduled_time") or "")
     return pending
 
 
+def get_all_jobs():
+    jobs = load_jobs()
+    status_order = {"publishing": 0, "pending": 1, "published": 2, "failed": 3}
+    jobs.sort(key=lambda j: (
+        status_order.get(j.get("status", "pending"), 9),
+        j.get("id", 0),
+    ))
+    return jobs
+
+
+def remove_job(job_id):
+    jobs = load_jobs()
+    jobs = [j for j in jobs if not (j["id"] == job_id and j["status"] == "pending")]
+    save_jobs(jobs)
+
+
 def clear_completed():
-    """완료된 작업 정리 (published/failed 제거)"""
     jobs = load_jobs()
     active = [j for j in jobs if j["status"] in ("pending", "publishing")]
+    removed = len(jobs) - len(active)
     save_jobs(active)
-    return len(jobs) - len(active)
+    return removed
 
 
-def create_interval_schedule(items, start_time, interval_minutes):
-    """
-    간격 발행 스케줄 생성
+def clear_all():
+    save_jobs([])
 
-    Args:
-        items: list of dict with 'title', 'content', 'category_no'
-        start_time: datetime - 첫 발행 시간
-        interval_minutes: int - 발행 간격 (분)
 
-    Returns:
-        list[dict]: 생성된 작업 리스트
-    """
-    blog_id = os.environ.get("NAVER_ID", "")
+def create_interval_schedule(topics, persona_id, persona_name, blog_key,
+                             start_time, interval_minutes,
+                             model_id="claude-sonnet-4-6", temperature=0.7,
+                             include_images=True, image_count=4):
+    """간격 발행 스케줄 생성"""
     created_jobs = []
-
-    for idx, item in enumerate(items):
+    for idx, topic in enumerate(topics):
         sched_time = start_time + timedelta(minutes=interval_minutes * idx)
         job = add_job(
-            title=item["title"],
-            content=item["content"],
-            blog_id=blog_id,
-            category_no=item.get("category_no"),
+            topic=topic, persona_id=persona_id, persona_name=persona_name,
+            blog_key=blog_key, model_id=model_id, temperature=temperature,
+            include_images=include_images, image_count=image_count,
             scheduled_time=sched_time.isoformat(),
         )
         created_jobs.append(job)
-
     return created_jobs
 
 
-async def execute_pending_jobs(progress_callback=None):
-    """
-    대기 중인 예약 작업 실행
-
-    Args:
-        progress_callback: func(job_id, status, message)
-
-    Returns:
-        list[dict]: 실행 결과
-    """
+def execute_job(job, progress_callback=None):
+    """단일 작업 실행 (sync)"""
     from src.naver_poster import NaverPoster
 
+    job_id = job["id"]
+    update_job_status(job_id, "publishing")
+    if progress_callback:
+        progress_callback(job_id, "publishing", f"발행 중: {job['topic'][:30]}")
+
+    blog_key = job.get("blog_key", "yun_ung_chae")
+    try:
+        with open("config/blogs.json", "r", encoding="utf-8") as f:
+            blogs = json.load(f).get("blogs", {})
+        blog_conf = blogs.get(blog_key, {})
+        blog_id_key = blog_conf.get("env_id_key", "NAVER_ID")
+        blog_id = os.environ.get(blog_id_key, "")
+    except Exception:
+        blog_id = os.environ.get("NAVER_ID", "")
+
+    try:
+        poster = NaverPoster(progress_callback=None, blog_key=blog_key)
+        try:
+            result = poster.one_click_post(
+                topic=job["topic"],
+                persona_id=job["persona_id"],
+                persona_name=job["persona_name"],
+                model_id=job.get("model_id", "claude-sonnet-4-6"),
+                temperature=job.get("temperature", 0.7),
+                include_images=job.get("include_images", True),
+                image_count=job.get("image_count", 4),
+                blog_id=blog_id,
+                category_no=job.get("category_no"),
+                override_title=job.get("override_title"),
+            )
+        finally:
+            poster.close()
+
+        if result.get("success"):
+            update_job_status(
+                job_id, "published",
+                result_url=result.get("url"),
+                result_title=result.get("title"),
+            )
+            if progress_callback:
+                progress_callback(job_id, "published", result.get("url", ""))
+            return {
+                "job_id": job_id, "success": True,
+                "url": result.get("url"), "title": result.get("title"),
+            }
+        else:
+            err = result.get("error", "발행 실패")
+            update_job_status(job_id, "failed", error=err)
+            if progress_callback:
+                progress_callback(job_id, "failed", err)
+            return {"job_id": job_id, "success": False, "error": err}
+
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        update_job_status(job_id, "failed", error=err)
+        if progress_callback:
+            progress_callback(job_id, "failed", err)
+        return {"job_id": job_id, "success": False, "error": err}
+
+
+def execute_pending_jobs(progress_callback=None):
+    """대기 중인 예약 작업 모두 실행 (sync)"""
     pending = get_pending_jobs()
     if not pending:
         return []
-
     results = []
-    poster = NaverPoster()
-
-    try:
-        await poster.connect()
-        await poster.login()
-
-        for job in pending:
-            update_job_status(job["id"], "publishing")
-
-            if progress_callback:
-                progress_callback(job["id"], "publishing",
-                                  f"'{job['title'][:30]}' 발행 중...")
-
-            try:
-                post_result = await poster.post(
-                    title=job["title"],
-                    content=job["content"],
-                    blog_id=job["blog_id"],
-                    category_no=job.get("category_no"),
-                )
-
-                if post_result.get("success"):
-                    update_job_status(job["id"], "published",
-                                     result_url=post_result.get("url"))
-                    results.append({
-                        "job_id": job["id"],
-                        "title": job["title"],
-                        "success": True,
-                        "url": post_result.get("url"),
-                    })
-                else:
-                    update_job_status(job["id"], "failed",
-                                     error=post_result.get("error", "발행 실패"))
-                    results.append({
-                        "job_id": job["id"],
-                        "title": job["title"],
-                        "success": False,
-                        "error": post_result.get("error"),
-                    })
-
-            except Exception as e:
-                update_job_status(job["id"], "failed", error=str(e))
-                results.append({
-                    "job_id": job["id"],
-                    "title": job["title"],
-                    "success": False,
-                    "error": str(e),
-                })
-
-            if progress_callback:
-                status = "published" if results[-1]["success"] else "failed"
-                progress_callback(job["id"], status,
-                                  results[-1].get("url") or results[-1].get("error"))
-
-            # 발행 간 대기
-            await asyncio.sleep(5)
-
-    finally:
-        await poster.close()
-
+    for job in pending:
+        result = execute_job(job, progress_callback)
+        results.append(result)
+        if job != pending[-1]:
+            time.sleep(10)
     return results
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 백그라운드 스케줄러 스레드
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _scheduler_loop(check_interval=30, log_callback=None):
+    global _scheduler_running
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    if log_callback:
+        log_callback("scheduler_started")
+    while _scheduler_running:
+        try:
+            pending = get_pending_jobs()
+            if pending:
+                if log_callback:
+                    log_callback(f"found_{len(pending)}_jobs")
+                for job in pending:
+                    if not _scheduler_running:
+                        break
+                    if log_callback:
+                        log_callback(f"job_{job['id']}_start")
+                    result = execute_job(job)
+                    if log_callback:
+                        status = "ok" if result.get("success") else "fail"
+                        log_callback(f"job_{job['id']}_{status}")
+                    if _scheduler_running:
+                        time.sleep(10)
+        except Exception as e:
+            if log_callback:
+                log_callback(f"error:{e}")
+        for _ in range(check_interval):
+            if not _scheduler_running:
+                break
+            time.sleep(1)
+    if log_callback:
+        log_callback("scheduler_stopped")
+
+
+def start_scheduler(check_interval=30, log_callback=None):
+    global _scheduler_thread, _scheduler_running
+    with _scheduler_lock:
+        if _scheduler_running:
+            return False
+        _scheduler_running = True
+        _scheduler_thread = threading.Thread(
+            target=_scheduler_loop,
+            args=(check_interval, log_callback),
+            daemon=True,
+            name="blog-scheduler",
+        )
+        _scheduler_thread.start()
+        return True
+
+
+def stop_scheduler():
+    global _scheduler_running
+    _scheduler_running = False
+
+
+def is_scheduler_running():
+    return _scheduler_running
+
+
+def get_scheduler_status():
+    jobs = load_jobs()
+    pending_jobs = [j for j in jobs if j["status"] == "pending"]
+    published_jobs = [j for j in jobs if j["status"] == "published"]
+    failed_jobs = [j for j in jobs if j["status"] == "failed"]
+    publishing_jobs = [j for j in jobs if j["status"] == "publishing"]
+    next_time = None
+    for j in pending_jobs:
+        st = j.get("scheduled_time")
+        if st:
+            try:
+                t = datetime.fromisoformat(st)
+                if next_time is None or t < next_time:
+                    next_time = t
+            except (ValueError, TypeError):
+                pass
+    return {
+        "running": _scheduler_running,
+        "total": len(jobs),
+        "pending": len(pending_jobs),
+        "publishing": len(publishing_jobs),
+        "published": len(published_jobs),
+        "failed": len(failed_jobs),
+        "next_scheduled": next_time.isoformat() if next_time else None,
+    }
