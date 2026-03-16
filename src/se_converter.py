@@ -18,29 +18,32 @@ import uuid
 # Zero-Width Space (문단 간격용)
 ZWS = "\u200B"
 
-# ── 내부 링크 메타데이터 (oglink 제목/설명 표시용) ──────────
+# ── 내부 링크 메타데이터 (oglink 제목/설명/썸네일 표시용) ──────────
 KNOWN_LINKS = {
     "222176762007": {
         "title": "포기도, 실패도 없다. 변리사 윤웅채 철학",
         "description": "마음껏 의심하십시오. 19년차 변리사의 업무 철학을 소개합니다.",
+        "thumbnail": "https://blogthumb.pstatic.net/MjAyNDA1MDlfMjg5/MDAxNzE1MjM5NjMwNTUw.placeholder.jpg",
     },
     "222176805543": {
         "title": "특허법인 테헤란, 진짜 고객의 추천",
         "description": "실제 고객분들의 후기와 추천을 확인하실 수 있습니다.",
+        "thumbnail": "https://blogthumb.pstatic.net/MjAyNDA1MDlfMjg5/MDAxNzE1MjM5NjMwNTUw.placeholder.jpg",
     },
     "222180460017": {
         "title": "컨설팅 접수 방법 (비용없는 1차상담 신청)",
         "description": "무료 1차 상담 신청 방법을 안내해 드립니다.",
+        "thumbnail": "https://blogthumb.pstatic.net/MjAyNDA1MDlfMjg5/MDAxNzE1MjM5NjMwNTUw.placeholder.jpg",
     },
 }
 
 
 def _lookup_link_meta(url):
-    """내부 링크 URL에서 제목/설명 조회"""
+    """내부 링크 URL에서 제목/설명/썸네일 조회"""
     for log_no, meta in KNOWN_LINKS.items():
         if log_no in url:
-            return meta["title"], meta["description"]
-    return "", ""
+            return meta["title"], meta["description"], meta.get("thumbnail", "")
+    return "", "", ""
 
 
 def _gen_id():
@@ -175,19 +178,32 @@ def _image_component(image_source, alt="", width=600):
     return comp
 
 
-def _oglink_component(url, title="", description=""):
-    """OG Link 컴포넌트 - 링크 미리보기 카드 (내부 링크 메타데이터 자동 조회)"""
+def _oglink_component(url, title="", description="", thumbnail=""):
+    """OG Link 컴포넌트 - 링크 미리보기 카드 (내부 링크 메타데이터 자동 조회)
+
+    SmartEditor oglink 컴포넌트 필수 필드:
+    - link: URL
+    - title: 링크 제목 (필수 - 없으면 카드에 제목 미표시)
+    - description: 설명 텍스트
+    - domain: 도메인명
+    - thumbnail: 썸네일 이미지 URL (있어야 이미지 + 제목 + 설명 풀 카드 표시)
+
+    주의: SmartEditor는 oglink 삽입 시 자체적으로 OG 메타데이터를 fetch합니다.
+    title/description/thumbnail을 명시하면 fallback으로 사용됩니다.
+    네이버 내부 링크(blog.naver.com)는 SmartEditor가 자동 fetch 가능하므로
+    기본 메타데이터만 제공하면 됩니다.
+    """
     domain = ""
     if "://" in url:
         domain = url.split("://")[1].split("/")[0]
 
     # 내부 링크 메타데이터 자동 조회
     if not title:
-        title, description = _lookup_link_meta(url)
+        title, description, thumbnail = _lookup_link_meta(url)
     if not title:
         title = domain
 
-    return {
+    comp = {
         "id": _gen_id(),
         "layout": "default",
         "link": url,
@@ -196,6 +212,28 @@ def _oglink_component(url, title="", description=""):
         "domain": domain,
         "video": False,
         "@ctype": "oglink",
+    }
+
+    # 썸네일이 있으면 추가 (풀 카드 표시에 필요)
+    if thumbnail:
+        comp["thumbnail"] = thumbnail
+
+    # source 정보 추가 (네이버 내부 링크 표시)
+    if "naver.com" in url or "blog.naver" in url:
+        comp["source"] = "blog.naver.com"
+
+    return comp
+
+
+def update_known_links(log_no, title, description, thumbnail=""):
+    """KNOWN_LINKS에 새 링크 메타데이터 추가/업데이트 (런타임)
+
+    Planner가 발행된 글의 OG 데이터를 수집하여 업데이트할 때 사용
+    """
+    KNOWN_LINKS[str(log_no)] = {
+        "title": title,
+        "description": description,
+        "thumbnail": thumbnail,
     }
 
 

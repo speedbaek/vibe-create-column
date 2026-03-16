@@ -10,11 +10,35 @@
 
 import os
 import time
+import random
 
 EDITOR_KEY = "blogpc001"
 EDITOR_URL = "https://blog.naver.com/{blog_id}/postwrite"
 # Playwright 전용 사용자 데이터 (로그인 세션 유지용)
-PW_USER_DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pw_browser_data")
+PW_USER_DATA_BASE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pw_browser_data")
+
+
+def _get_blog_config(blog_key=None):
+    """blogs.json에서 블로그 설정 로드"""
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "blogs.json")
+    if os.path.exists(config_path):
+        import json
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        blogs = data.get("blogs", {})
+        if blog_key and blog_key in blogs:
+            return blogs[blog_key]
+    return None
+
+
+def _get_pw_user_data(blog_key=None):
+    """블로그별 별도 브라우저 프로필 경로 (계정 세션 분리)"""
+    if blog_key and blog_key != "yun_ung_chae":
+        path = f"{PW_USER_DATA_BASE}_{blog_key}"
+    else:
+        path = PW_USER_DATA_BASE
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def _log(msg):
@@ -22,11 +46,13 @@ def _log(msg):
 
 
 class NaverPoster:
-    def __init__(self, progress_callback=None):
+    def __init__(self, progress_callback=None, blog_key=None):
         self.context = None
         self.page = None
         self._pw = None
         self._progress_cb = progress_callback
+        self._blog_key = blog_key
+        self._blog_config = _get_blog_config(blog_key)
 
     def _progress(self, step, total, msg):
         _log(msg)
@@ -37,14 +63,14 @@ class NaverPoster:
         """Playwright 내장 Chromium으로 브라우저 실행 (sync API)"""
         from playwright.sync_api import sync_playwright
 
-        os.makedirs(PW_USER_DATA, exist_ok=True)
+        user_data = _get_pw_user_data(self._blog_key)
 
         self._pw = sync_playwright().start()
 
         # channel='chrome' → 시스템 Chrome 사용 (Playwright 내장 Chromium은 spawn 실패)
-        # persistent context → 로그인 쿠키/세션 pw_browser_data에 유지
+        # persistent context → 로그인 쿠키/세션 유지 (블로그별 분리)
         self.context = self._pw.chromium.launch_persistent_context(
-            user_data_dir=PW_USER_DATA,
+            user_data_dir=user_data,
             headless=False,
             channel="chrome",
             args=[
@@ -60,8 +86,15 @@ class NaverPoster:
 
     def login(self, naver_id=None, naver_pw=None):
         """자동 로그인 (evaluate로 값 설정 + 폼 제출)"""
-        naver_id = naver_id or os.environ.get("NAVER_ID", "")
-        naver_pw = naver_pw or os.environ.get("NAVER_PW", "")
+        # 블로그 설정에서 계정 환경변수 키 조회
+        if self._blog_config:
+            id_key = self._blog_config.get("env_id_key", "NAVER_ID")
+            pw_key = self._blog_config.get("env_pw_key", "NAVER_PW")
+        else:
+            id_key = "NAVER_ID"
+            pw_key = "NAVER_PW"
+        naver_id = naver_id or os.environ.get(id_key, "")
+        naver_pw = naver_pw or os.environ.get(pw_key, "")
 
         if not naver_id or not naver_pw:
             raise ValueError("NAVER_ID/NAVER_PW가 설정되지 않았습니다. (.env 확인)")
@@ -360,7 +393,7 @@ class NaverPoster:
         override_title=None,
     ):
         """원클릭 자동 발행: 키워드 → 칼럼 생성 → 이미지 → CDN 업로드 → 발행"""
-        blog_id = blog_id or os.environ.get("NAVER_ID", "")
+        blog_id = blog_id or (self._blog_config.get("blog_id") if self._blog_config else "") or os.environ.get("NAVER_ID", "")
         total_steps = 8
 
         try:
@@ -488,6 +521,272 @@ class NaverPoster:
         except Exception as e:
             return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
+    # ── 휴먼 시뮬레이션 메서드들 ──────────────────────────
+
+    def _human_delay(self, min_sec=0.5, max_sec=2.0):
+        """사람처럼 불규칙한 딜레이"""
+        delay = random.uniform(min_sec, max_sec)
+        time.sleep(delay)
+
+    def _human_scroll(self, direction="down", amount=None):
+        """사람처럼 스크롤 (불규칙한 양)"""
+        if amount is None:
+            amount = random.randint(100, 400)
+        if direction == "up":
+            amount = -amount
+        self.page.mouse.wheel(0, amount)
+        self._human_delay(0.3, 0.8)
+
+    def _human_mouse_move(self):
+        """사람처럼 마우스를 무작위 위치로 이동"""
+        x = random.randint(100, 1100)
+        y = random.randint(100, 700)
+        self.page.mouse.move(x, y)
+        self._human_delay(0.1, 0.3)
+
+    def _type_like_human(self, text, delay_per_char=None):
+        """사람처럼 한 글자씩 타이핑 (불규칙 속도)"""
+        for char in text:
+            self.page.keyboard.type(char)
+            if delay_per_char:
+                time.sleep(delay_per_char)
+            else:
+                # 한글은 좀 느리게, 영문/숫자는 빠르게
+                if ord(char) > 127:
+                    time.sleep(random.uniform(0.05, 0.15))
+                else:
+                    time.sleep(random.uniform(0.02, 0.08))
+
+    def _simulate_writing_behavior(self):
+        """글 작성 중 사람 행동 시뮬레이션 (스크롤, 마우스 이동, 잠시 멈춤)"""
+        actions = [
+            lambda: self._human_scroll("down"),
+            lambda: self._human_scroll("up", random.randint(50, 150)),
+            lambda: self._human_mouse_move(),
+            lambda: self._human_delay(1.0, 3.0),  # 잠시 생각하는 듯 멈춤
+        ]
+        action = random.choice(actions)
+        action()
+
+    def _human_like_set_title(self, title):
+        """제목을 사람처럼 입력 (타이핑 시뮬레이션)"""
+        _log("제목 입력 시작 (타이핑 시뮬레이션)...")
+
+        # 제목 영역 클릭
+        title_area = self.page.locator('.se-documentTitle-editView .se-text-paragraph')
+        try:
+            title_area.click(timeout=5000)
+        except Exception:
+            self.page.evaluate("""() => {
+                var titleEl = document.querySelector('.se-documentTitle-editView .se-text-paragraph');
+                if (titleEl) titleEl.click();
+            }""")
+
+        self._human_delay(0.5, 1.0)
+
+        # 한 글자씩 타이핑
+        self._type_like_human(title)
+        self._human_delay(1.0, 2.0)
+        _log(f"제목 입력 완료: {title[:30]}...")
+
+    def _human_like_set_content(self, se_doc_data, title):
+        """본문을 하이브리드 방식으로 설정
+        - 제목: 타이핑 시뮬레이션
+        - 본문: setDocumentData() (타이핑으로는 SmartEditor 컴포넌트 생성 불가)
+        - 전후로 사람 행동 시뮬레이션 추가
+        """
+        _log("하이브리드 콘텐츠 입력 시작...")
+
+        # 1. 에디터 영역 클릭 + 스크롤
+        self._human_delay(1.0, 2.0)
+        self._human_scroll("down", 100)
+        self._human_mouse_move()
+
+        # 2. 본문 영역 클릭
+        try:
+            body_area = self.page.locator('.se-component-content .se-text-paragraph').first
+            body_area.click(timeout=3000)
+        except Exception:
+            pass
+
+        self._human_delay(0.5, 1.5)
+
+        # 3. 사람처럼 잠시 생각하는 듯 멈춤
+        _log("  본문 구성 중... (사람 행동 시뮬레이션)")
+        self._simulate_writing_behavior()
+        self._human_delay(2.0, 4.0)
+
+        # 4. setDocumentData()로 본문 설정 (타이핑 불가능한 컴포넌트들)
+        _log("  setDocumentData 실행...")
+        result = self._set_document_data(se_doc_data)
+
+        # 5. 설정 후 사람 행동 (스크롤하며 확인하는 듯)
+        self._human_delay(1.0, 2.0)
+        for _ in range(random.randint(2, 4)):
+            self._human_scroll("down", random.randint(200, 500))
+            self._human_delay(0.5, 1.5)
+
+        # 6. 맨 위로 올라가서 확인
+        self._human_scroll("up", 2000)
+        self._human_delay(1.0, 2.0)
+
+        return result
+
+    def post_human_like(
+        self,
+        topic,
+        persona_id="yun_ung_chae",
+        persona_name="윤웅채",
+        model_id="claude-sonnet-4-6",
+        temperature=0.7,
+        include_images=True,
+        image_count=4,
+        title_count=3,
+        blog_id=None,
+        category_no=None,
+        override_title=None,
+    ):
+        """
+        휴먼 시뮬레이션 발행: 사람이 직접 작성하는 것처럼 행동
+        - 불규칙한 딜레이, 스크롤, 마우스 이동
+        - 제목 타이핑 시뮬레이션
+        - 본문은 setDocumentData (SmartEditor 제약)
+        - 발행 전 미리보기 확인 행동
+        """
+        blog_id = blog_id or (self._blog_config.get("blog_id") if self._blog_config else "") or os.environ.get("NAVER_ID", "")
+        total_steps = 8
+
+        try:
+            # Step 1: 브라우저 실행
+            self._progress(1, total_steps, "Playwright Chromium 실행 중...")
+            self.connect()
+            self._human_delay(1.0, 2.0)
+
+            # Step 2: 자동 로그인
+            self._progress(2, total_steps, "네이버 자동 로그인 중...")
+            self.login()
+            self._human_delay(2.0, 4.0)
+
+            # 로그인 후 메인 페이지 둘러보기
+            self._human_mouse_move()
+            self._human_scroll("down", 200)
+            self._human_delay(1.0, 3.0)
+
+            # Step 3: 칼럼 생성
+            self._progress(3, total_steps, f"'{topic}' 칼럼 생성 중...")
+            from src.orchestrator import generate_preview
+
+            gen_result = generate_preview(
+                topic=topic,
+                persona_id=persona_id,
+                persona_name=persona_name,
+                model_id=model_id,
+                temperature=temperature,
+                include_images=include_images,
+                image_count=image_count,
+                auto_title=True,
+                title_count=title_count,
+            )
+
+            if not gen_result.get("success"):
+                return {"success": False, "error": "칼럼 생성 실패"}
+
+            title = override_title or gen_result["title"]
+            content = gen_result["raw_content"]
+            image_data = gen_result.get("image_data")
+
+            self._progress(3, total_steps, f"칼럼 생성 완료! ({gen_result['char_count']}자)")
+
+            # Step 4: 이미지 다운로드
+            local_image_paths = []
+            if include_images and image_data:
+                self._progress(4, total_steps, "이미지 로컬 다운로드 중...")
+                try:
+                    from src.image_handler import download_dalle_images
+                    images_dir = os.path.join("outputs", "images")
+                    local_paths = download_dalle_images(image_data, output_dir=images_dir)
+                    local_image_paths = [p for p in local_paths if p and os.path.exists(p)]
+                    self._progress(4, total_steps, f"이미지 {len(local_image_paths)}장 다운로드 완료")
+                except Exception as e:
+                    _log(f"이미지 다운로드 실패: {e}")
+
+            # Step 5: 에디터 이동 (사람처럼)
+            self._progress(5, total_steps, "블로그 에디터 이동 중...")
+            self._human_delay(1.0, 2.0)
+            self._navigate_to_editor(blog_id)
+            self._human_delay(2.0, 4.0)
+
+            # 에디터 로드 후 둘러보기
+            self._human_scroll("down", 150)
+            self._human_delay(0.5, 1.0)
+            self._human_scroll("up", 150)
+
+            # Step 6: 이미지 CDN 업로드 (사이사이 휴먼 딜레이)
+            native_image_components = []
+            if local_image_paths:
+                self._progress(6, total_steps, f"이미지 {len(local_image_paths)}장 CDN 업로드 중...")
+                native_image_components = self._upload_images(blog_id, local_image_paths)
+                # 업로드 사이사이 사람 행동
+                self._human_delay(1.0, 3.0)
+                self._human_mouse_move()
+
+            # Step 7: 콘텐츠 설정 (하이브리드 방식)
+            self._progress(7, total_steps, "에디터에 콘텐츠 작성 중 (휴먼 시뮬레이션)...")
+            from src.se_converter import build_document_data
+
+            se_doc_data = build_document_data(
+                title=title,
+                text=content,
+                image_urls=native_image_components if native_image_components else None,
+            )
+
+            set_result = self._human_like_set_content(se_doc_data, title)
+            if not set_result.get("ok"):
+                return {"success": False, "error": f"setDocumentData 실패: {set_result.get('error')}"}
+
+            # 카테고리 설정
+            if category_no:
+                self._human_delay(0.5, 1.0)
+                self._set_category(category_no)
+
+            # 유효성 검증
+            validation = self._validate()
+            if not validation.get("valid"):
+                return {"success": False, "error": f"검증 실패: {validation.get('reason')}"}
+
+            # 발행 전 최종 확인 행동
+            _log("발행 전 최종 확인 (스크롤)...")
+            self._human_scroll("up", 2000)
+            self._human_delay(1.0, 2.0)
+            for _ in range(random.randint(1, 3)):
+                self._human_scroll("down", random.randint(300, 600))
+                self._human_delay(0.5, 1.5)
+            self._human_scroll("up", 2000)
+            self._human_delay(1.0, 2.0)
+
+            # Step 8: 발행
+            self._progress(8, total_steps, "발행 중...")
+            self._human_delay(1.0, 2.0)
+            publish_result = self._publish()
+
+            if publish_result.get("success"):
+                self._progress(8, total_steps, f"발행 완료! {publish_result['url']}")
+
+            publish_result["title"] = title
+            publish_result["char_count"] = gen_result["char_count"]
+            publish_result["image_count"] = len(native_image_components)
+            publish_result["posting_mode"] = "human_like"
+            publish_result["generation"] = {
+                "attempts": gen_result.get("attempts", 0),
+                "similarity": gen_result.get("similarity", {}),
+                "title_candidates": gen_result.get("title_candidates", []),
+            }
+
+            return publish_result
+
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
+
     def close(self):
         """연결 종료"""
         if self.context:
@@ -509,9 +808,28 @@ def one_click_post(topic, **kwargs):
     Usage:
         from src.naver_poster import one_click_post
         result = one_click_post("상표등록 필수인 이유")
+        result = one_click_post("상표등록", blog_key="teheran_official")
     """
-    poster = NaverPoster(progress_callback=kwargs.pop("progress_callback", None))
+    blog_key = kwargs.pop("blog_key", None)
+    poster = NaverPoster(progress_callback=kwargs.pop("progress_callback", None), blog_key=blog_key)
     try:
         return poster.one_click_post(topic=topic, **kwargs)
+    finally:
+        poster.close()
+
+
+def human_like_post(topic, **kwargs):
+    """
+    휴먼 시뮬레이션 발행 함수 (sync)
+
+    Usage:
+        from src.naver_poster import human_like_post
+        result = human_like_post("상표등록 필수인 이유")
+        result = human_like_post("상표등록", blog_key="teheran_official")
+    """
+    blog_key = kwargs.pop("blog_key", None)
+    poster = NaverPoster(progress_callback=kwargs.pop("progress_callback", None), blog_key=blog_key)
+    try:
+        return poster.post_human_like(topic=topic, **kwargs)
     finally:
         poster.close()

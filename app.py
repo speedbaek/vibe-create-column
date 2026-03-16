@@ -181,24 +181,76 @@ def run_in_thread(func, *args, **kwargs):
         return future.result(timeout=600)  # 최대 10분
 
 
-# -- 사이드바 --
+# -- 블로그 설정 로드 --
 
-PERSONA_OPTIONS = {
-    "yun_ung_chae": "윤웅채 변리사",
-}
+def load_blog_config():
+    """blogs.json에서 블로그 목록 로드"""
+    try:
+        with open("config/blogs.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("blogs", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {
+            "yun_ung_chae": {
+                "display_name": "윤웅채 변리사 블로그",
+                "blog_id": "jninsa",
+                "env_id_key": "NAVER_ID",
+                "env_pw_key": "NAVER_PW",
+                "default_persona": "yun_ung_chae",
+                "personas": ["yun_ung_chae"],
+            }
+        }
+
+BLOG_CONFIG = load_blog_config()
+
+# 페르소나 옵션 (블로그별 자동 생성)
+def get_persona_display_name(persona_id):
+    """페르소나 JSON에서 display name 로드"""
+    json_path = f"config/personas/{persona_id}.json"
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("name", persona_id)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return persona_id
+
+# -- 사이드바 --
 
 with st.sidebar:
     st.title("🚀 블로그 자동화")
     st.caption("특허법인 테헤란")
 
+    # 블로그 선택 (새로 추가)
+    st.markdown("---")
+    st.subheader("블로그 선택")
+    selected_blog_key = st.selectbox(
+        "대상 블로그:",
+        options=list(BLOG_CONFIG.keys()),
+        format_func=lambda x: BLOG_CONFIG[x].get("display_name", x),
+        key="blog_select",
+    )
+    selected_blog = BLOG_CONFIG[selected_blog_key]
+
+    # 선택된 블로그의 페르소나 목록
+    blog_personas = selected_blog.get("personas", [])
+    if not blog_personas:
+        blog_personas = [selected_blog.get("default_persona", selected_blog_key)]
+
     st.markdown("---")
     st.subheader("페르소나")
-    selected_persona_id = st.selectbox(
-        "작성자:",
-        options=list(PERSONA_OPTIONS.keys()),
-        format_func=lambda x: PERSONA_OPTIONS[x],
-    )
-    selected_persona_name = PERSONA_OPTIONS[selected_persona_id]
+    if len(blog_personas) == 1:
+        selected_persona_id = blog_personas[0]
+        selected_persona_name = get_persona_display_name(selected_persona_id)
+        st.info(f"작성자: **{selected_persona_name}**")
+    else:
+        selected_persona_id = st.selectbox(
+            "작성자:",
+            options=blog_personas,
+            format_func=lambda x: get_persona_display_name(x),
+        )
+        selected_persona_name = get_persona_display_name(selected_persona_id)
 
     st.markdown("---")
     st.subheader("모델 설정")
@@ -243,11 +295,16 @@ with st.sidebar:
         st.warning("⚠️ 학습 데이터 없음")
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    naver_id = os.environ.get("NAVER_ID", "")
+    blog_id_key = selected_blog.get("env_id_key", "NAVER_ID")
+    blog_pw_key = selected_blog.get("env_pw_key", "NAVER_PW")
+    naver_id = os.environ.get(blog_id_key, "")
+    naver_pw_set = bool(os.environ.get(blog_pw_key, ""))
     openai_key = os.environ.get("OPENAI_API_KEY", "")
     st.caption(f"Anthropic API: {'✅' if api_key else '❌'}")
-    st.caption(f"OpenAI API: {'✅' if openai_key else '⚠️ 플레이스홀더 이미지 사용'}")
-    st.caption(f"Naver ID: {'✅' if naver_id else '❌ (.env에 추가 필요)'}")
+    st.caption(f"OpenAI API: {'✅' if openai_key else '⚠️ 플레이스홀더 이미지'}")
+    st.caption(f"블로그 계정 ({blog_id_key}): {'✅ ' + naver_id if naver_id else '❌ .env에 추가 필요'}")
+    if not naver_id:
+        st.caption(f"💡 .env에 `{blog_id_key}=아이디` `{blog_pw_key}=비밀번호` 추가")
 
 
 # -- 메인 탭 --
@@ -268,12 +325,28 @@ with tab1:
     st.markdown("### 원클릭 자동 발행")
     st.caption("키워드 입력 → 버튼 클릭 한번 → 칼럼 생성 + 이미지 + 네이버 블로그 발행까지 자동 완료")
 
-    # 환경 체크
-    naver_id = os.environ.get("NAVER_ID", "")
-    naver_pw = os.environ.get("NAVER_PW", "")
+    # 환경 체크 (선택된 블로그의 계정)
+    blog_id_env = selected_blog.get("env_id_key", "NAVER_ID")
+    blog_pw_env = selected_blog.get("env_pw_key", "NAVER_PW")
+    naver_id = os.environ.get(blog_id_env, "")
+    naver_pw = os.environ.get(blog_pw_env, "")
     env_ok = bool(naver_id and naver_pw)
     if not env_ok:
-        st.error("⚠️ .env 파일에 NAVER_ID와 NAVER_PW를 설정해주세요.")
+        st.error(f"⚠️ .env 파일에 `{blog_id_env}`와 `{blog_pw_env}`를 설정해주세요.")
+
+    # 발행 모드 선택
+    posting_mode = st.radio(
+        "발행 모드",
+        options=["human_like", "fast", "agent"],
+        format_func=lambda x: {
+            "human_like": "🧑 휴먼 시뮬레이션 (사람처럼 행동)",
+            "fast": "⚡ 원클릭 (빠른 발행)",
+            "agent": "🤖 에이전트 파이프라인 (품질 분석 포함)",
+        }[x],
+        index=0,
+        horizontal=True,
+        key="posting_mode",
+    )
 
     # 키워드 입력
     oneclick_topic = st.text_input(
@@ -290,9 +363,10 @@ with tab1:
             key="override_title",
         )
 
-    # 원클릭 발행 버튼
+    # 발행 버튼
+    btn_label = {"human_like": "🧑 휴먼 시뮬레이션 발행", "fast": "⚡ 원클릭 발행", "agent": "🤖 에이전트 발행"}
     oneclick_clicked = st.button(
-        "🚀 원클릭 발행",
+        btn_label.get(posting_mode, "🚀 발행"),
         type="primary",
         use_container_width=True,
         disabled=not env_ok,
@@ -301,31 +375,72 @@ with tab1:
 
     if oneclick_clicked and oneclick_topic.strip():
         try:
-            from src.naver_poster import NaverPoster
-
             # 진행 상황은 콘솔 로그로만 출력 (Streamlit 스레드 제한 회피)
             def log_progress(step, total, msg):
                 print(f"[{step}/{total}] {msg}")
 
-            with st.spinner("🚀 원클릭 발행 진행 중... (칼럼 생성 → 이미지 → 업로드 → 발행, 최대 5~10분 소요)"):
-                def _do_one_click():
-                    poster = NaverPoster(progress_callback=log_progress)
-                    try:
-                        return poster.one_click_post(
+            mode_label = {"human_like": "🧑 휴먼 시뮬레이션", "fast": "⚡ 원클릭", "agent": "🤖 에이전트"}
+            with st.spinner(f"{mode_label.get(posting_mode, '')} 발행 진행 중... (최대 5~10분 소요)"):
+
+                if posting_mode == "agent":
+                    # 에이전트 파이프라인 모드
+                    def _do_agent():
+                        from src.agent_orchestrator import run_full_pipeline
+                        return run_full_pipeline(
                             topic=oneclick_topic.strip(),
                             persona_id=selected_persona_id,
                             persona_name=selected_persona_name,
+                            mode="human_like",
                             model_id=selected_model,
                             temperature=temperature,
                             include_images=include_images,
                             image_count=image_count if include_images else 0,
                             blog_id=naver_id,
-                            override_title=override_title.strip() if override_title.strip() else None,
+                            progress_callback=log_progress,
                         )
-                    finally:
-                        poster.close()
+                    result = run_in_thread(_do_agent)
 
-                result = run_in_thread(_do_one_click)
+                elif posting_mode == "human_like":
+                    # 휴먼 시뮬레이션 모드
+                    def _do_human_like():
+                        from src.naver_poster import NaverPoster
+                        poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
+                        try:
+                            return poster.post_human_like(
+                                topic=oneclick_topic.strip(),
+                                persona_id=selected_persona_id,
+                                persona_name=selected_persona_name,
+                                model_id=selected_model,
+                                temperature=temperature,
+                                include_images=include_images,
+                                image_count=image_count if include_images else 0,
+                                blog_id=naver_id,
+                                override_title=override_title.strip() if override_title.strip() else None,
+                            )
+                        finally:
+                            poster.close()
+                    result = run_in_thread(_do_human_like)
+
+                else:
+                    # 원클릭 빠른 발행
+                    def _do_one_click():
+                        from src.naver_poster import NaverPoster
+                        poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
+                        try:
+                            return poster.one_click_post(
+                                topic=oneclick_topic.strip(),
+                                persona_id=selected_persona_id,
+                                persona_name=selected_persona_name,
+                                model_id=selected_model,
+                                temperature=temperature,
+                                include_images=include_images,
+                                image_count=image_count if include_images else 0,
+                                blog_id=naver_id,
+                                override_title=override_title.strip() if override_title.strip() else None,
+                            )
+                        finally:
+                            poster.close()
+                    result = run_in_thread(_do_one_click)
 
             if result.get("success"):
                 st.success(f"✅ 발행 완료!")
@@ -334,7 +449,23 @@ with tab1:
                     st.markdown(f"**URL:** {result.get('url', '')}")
                 st.markdown(f"**본문:** {result.get('char_count', 0)}자 | **이미지:** {result.get('image_count', 0)}장")
 
-                # 히스토리 저장
+                # 에이전트 모드: 품질 분석 결과 표시
+                if posting_mode == "agent" and result.get("quality_verdict"):
+                    verdict = result["quality_verdict"]
+                    with st.expander(f"📊 품질 분석: {verdict['grade']}등급 (점수: {verdict['score']})"):
+                        st.write(verdict.get("notes", ""))
+                        metrics = result.get("quality_metrics", {})
+                        if metrics:
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("평균 문장 길이", f"{metrics.get('avg_sentence_length', 0)}자")
+                            with col2:
+                                st.metric("소제목 수", metrics.get('heading_count', 0))
+                            with col3:
+                                endings = metrics.get('ending_ratios', {})
+                                st.metric("~습니다 비율", f"{endings.get('formal', 0)*100:.0f}%")
+
+                # 제목 후보
                 gen = result.get("generation", {})
                 if gen.get("title_candidates"):
                     with st.expander("📝 제목 후보"):
@@ -343,8 +474,8 @@ with tab1:
             else:
                 st.error(f"❌ 발행 실패: {result.get('error', '알 수 없는 오류')}")
 
-        except ImportError:
-            st.error("playwright가 설치되어 있지 않습니다. `pip install playwright && playwright install chromium`")
+        except ImportError as ie:
+            st.error(f"모듈 로드 실패: {ie}. playwright 설치: `pip install playwright && playwright install chromium`")
         except Exception as e:
             st.error(f"❌ 오류: {type(e).__name__}: {e}")
 

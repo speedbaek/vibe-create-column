@@ -1,7 +1,7 @@
 """
 이미지 핸들러 모듈
 - 소제목 텍스트를 카드형 이미지로 렌더링 (PIL)
-- 960x540 표준 블로그 이미지 크기 (네이버 이미지 인식 대응)
+- 680x200 가로형 배너 크기 (네이버 블로그 최적화)
 - NanumPen / NanumBrush / 맑은고딕 혼합 사용
 - 그라데이션 배경 + 장식 요소로 시각적 복잡도 확보
 """
@@ -24,9 +24,9 @@ FONTS = {
     "NanumBrush": "https://github.com/google/fonts/raw/main/ofl/nanumbrushscript/NanumBrushScript-Regular.ttf",
 }
 
-# 표준 블로그 이미지 크기 (16:9)
-IMG_WIDTH = 960
-IMG_HEIGHT = 540
+# 가로형 배너 이미지 크기 (3.4:1 비율)
+IMG_WIDTH = 680
+IMG_HEIGHT = 200
 
 
 def ensure_fonts():
@@ -186,7 +186,7 @@ _BG_THEMES = [
 
 
 def _style_gradient_card(text, output_path, theme_index=0):
-    """스타일 1: 그라데이션 배경 + 큰 텍스트 카드"""
+    """스타일 1: 그라데이션 배경 + 큰 텍스트 배너 (680x200)"""
     from PIL import Image, ImageDraw
 
     theme = _BG_THEMES[theme_index % len(_BG_THEMES)]
@@ -194,27 +194,22 @@ def _style_gradient_card(text, output_path, theme_index=0):
     draw = ImageDraw.Draw(img)
 
     _draw_gradient(draw, IMG_WIDTH, IMG_HEIGHT, theme["grad_start"], theme["grad_end"])
-    _draw_geometric_shapes(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=8)
+    _draw_geometric_shapes(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=5)
 
-    overlay = _draw_decorative_circles(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=6)
+    overlay = _draw_decorative_circles(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=4)
     img_rgba = img.convert('RGBA')
     img_rgba = Image.alpha_composite(img_rgba, overlay)
     img = img_rgba.convert('RGB')
     draw = ImageDraw.Draw(img)
 
-    # 중앙 반투명 카드 영역
-    card_margin = 80
-    card_y1 = 100
-    card_y2 = IMG_HEIGHT - 100
-    for y in range(card_y1, card_y2):
-        r, g, b = theme["grad_start"]
-        draw.line([(card_margin, y), (IMG_WIDTH - card_margin, y)],
-                  fill=(min(r + 30, 255), min(g + 30, 255), min(b + 30, 255)))
+    # 좌우 장식 라인
+    draw.line([(30, 30), (30, IMG_HEIGHT - 30)], fill=theme["accent"], width=2)
+    draw.line([(IMG_WIDTH - 30, 30), (IMG_WIDTH - 30, IMG_HEIGHT - 30)], fill=theme["accent"], width=2)
 
     font_name = random.choice(["NanumBrush", "NanumPen"])
     font, lines, fsize = _adjust_font_size(
-        text, font_name, IMG_WIDTH - 200, 240, draw,
-        size_range=[72, 64, 58, 52, 48, 44]
+        text, font_name, IMG_WIDTH - 120, IMG_HEIGHT - 60, draw,
+        size_range=[52, 48, 44, 40, 36, 32]
     )
 
     total_h = 0
@@ -224,7 +219,7 @@ def _style_gradient_card(text, output_path, theme_index=0):
         h = bbox[3] - bbox[1]
         line_heights.append(h)
         total_h += h
-    total_h += (len(lines) - 1) * 16
+    total_h += (len(lines) - 1) * 10
 
     y = (IMG_HEIGHT - total_h) // 2
     text_color = theme["text"]
@@ -232,53 +227,43 @@ def _style_gradient_card(text, output_path, theme_index=0):
         bbox = draw.textbbox((0, 0), line, font=font)
         w = bbox[2] - bbox[0]
         x = (IMG_WIDTH - w) // 2
-        draw.text((x + 2, y + 2), line, fill='#00000044', font=font)
+        draw.text((x + 1, y + 1), line, fill='#00000044', font=font)
         draw.text((x, y), line, fill=text_color, font=font)
-        y += line_heights[i] + 16
-
-    line_w = min(len(text) * 14, IMG_WIDTH - 200)
-    x_start = (IMG_WIDTH - line_w) // 2
-    draw.line([(x_start, IMG_HEIGHT - 80), (x_start + line_w, IMG_HEIGHT - 80)],
-              fill=theme["text"], width=2)
+        y += line_heights[i] + 10
 
     img.save(output_path, 'PNG', quality=95)
     return output_path
 
 
 def _style_split_card(text, output_path, theme_index=0):
-    """스타일 2: 좌우 분할 카드 (색상 블록 + 텍스트)"""
+    """스타일 2: 좌우 분할 배너 (색상 블록 + 텍스트, 680x200)"""
     from PIL import Image, ImageDraw
 
     theme = _BG_THEMES[theme_index % len(_BG_THEMES)]
     img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), '#FFFFFF')
     draw = ImageDraw.Draw(img)
 
-    split_x = int(IMG_WIDTH * 0.38)
+    split_x = int(IMG_WIDTH * 0.25)
     _draw_gradient(draw, split_x, IMG_HEIGHT, theme["grad_start"], theme["grad_end"])
-    _draw_geometric_shapes(draw, split_x, IMG_HEIGHT, theme["accent"], count=6)
-    overlay = _draw_decorative_circles(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=4)
+    _draw_geometric_shapes(draw, split_x, IMG_HEIGHT, theme["accent"], count=3)
+    overlay = _draw_decorative_circles(draw, IMG_WIDTH, IMG_HEIGHT, theme["accent"], count=3)
     img_rgba = img.convert('RGBA')
     img_rgba = Image.alpha_composite(img_rgba, overlay)
     img = img_rgba.convert('RGB')
     draw = ImageDraw.Draw(img)
 
-    quote_font = _get_font("NanumBrush", 140)
-    draw.text((40, 60), "\u201c", fill=theme["text"], font=quote_font)
+    # 좌측 따옴표 장식
+    quote_font = _get_font("NanumBrush", 80)
+    draw.text((20, 30), "\u201c", fill=theme["text"], font=quote_font)
 
     right_bg = (248, 248, 250)
     draw.rectangle([split_x, 0, IMG_WIDTH, IMG_HEIGHT], fill=right_bg)
 
-    for _ in range(300):
-        rx = random.randint(split_x, IMG_WIDTH - 1)
-        ry = random.randint(0, IMG_HEIGHT - 1)
-        gray = random.randint(235, 248)
-        draw.point((rx, ry), fill=(gray, gray, gray))
-
-    text_area_w = IMG_WIDTH - split_x - 100
+    text_area_w = IMG_WIDTH - split_x - 60
     font_name = random.choice(["NanumPen", "NanumBrush"])
     font, lines, fsize = _adjust_font_size(
-        text, font_name, text_area_w, 300, draw,
-        size_range=[64, 58, 52, 48, 44, 40]
+        text, font_name, text_area_w, IMG_HEIGHT - 50, draw,
+        size_range=[48, 44, 40, 36, 32, 28]
     )
 
     total_h = 0
@@ -288,30 +273,32 @@ def _style_split_card(text, output_path, theme_index=0):
         h = bbox[3] - bbox[1]
         line_heights.append(h)
         total_h += h
-    total_h += (len(lines) - 1) * 14
+    total_h += (len(lines) - 1) * 8
 
     y = (IMG_HEIGHT - total_h) // 2
     for i, line in enumerate(lines):
-        x = split_x + 50
+        x = split_x + 30
         draw.text((x, y), line, fill='#1a1a2e', font=font)
-        y += line_heights[i] + 14
+        y += line_heights[i] + 8
 
-    draw.line([(split_x + 50, IMG_HEIGHT - 70),
-               (split_x + 50 + min(len(text) * 10, text_area_w - 20), IMG_HEIGHT - 70)],
-              fill=theme["grad_start"], width=3)
+    # 하단 라인
+    draw.line([(split_x + 30, IMG_HEIGHT - 20),
+               (split_x + 30 + min(len(text) * 8, text_area_w - 20), IMG_HEIGHT - 20)],
+              fill=theme["grad_start"], width=2)
 
     img.save(output_path, 'PNG', quality=95)
     return output_path
 
 
 def _style_center_box(text, output_path, theme_index=0):
-    """스타일 3: 패턴 배경 + 중앙 박스 카드"""
+    """스타일 3: 패턴 배경 + 중앙 박스 배너 (680x200)"""
     from PIL import Image, ImageDraw
 
     theme = _BG_THEMES[theme_index % len(_BG_THEMES)]
     img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), theme["grad_end"])
     draw = ImageDraw.Draw(img)
 
+    # 대각선 그라데이션 (간소화)
     for y in range(IMG_HEIGHT):
         for x in range(0, IMG_WIDTH, 4):
             ratio = (x / IMG_WIDTH * 0.5 + y / IMG_HEIGHT * 0.5)
@@ -320,14 +307,15 @@ def _style_center_box(text, output_path, theme_index=0):
             b = int(theme["grad_start"][2] + (theme["grad_end"][2] - theme["grad_start"][2]) * ratio)
             draw.line([(x, y), (x + 3, y)], fill=(r, g, b))
 
-    for dx in range(0, IMG_WIDTH, 30):
-        for dy in range(0, IMG_HEIGHT, 30):
+    # 도트 패턴 (간격 축소)
+    for dx in range(0, IMG_WIDTH, 25):
+        for dy in range(0, IMG_HEIGHT, 25):
             r, g, b = theme["accent"]
-            draw.ellipse([dx - 2, dy - 2, dx + 2, dy + 2],
+            draw.ellipse([dx - 1, dy - 1, dx + 1, dy + 1],
                          fill=(min(r, 255), min(g, 255), min(b, 255)))
 
-    box_margin_x = 100
-    box_margin_y = 80
+    box_margin_x = 50
+    box_margin_y = 25
     is_dark = sum(theme["grad_start"]) < 400
     if is_dark:
         box_color = (255, 255, 255)
@@ -341,12 +329,12 @@ def _style_center_box(text, output_path, theme_index=0):
         fill=box_color, outline=None
     )
 
-    text_area_w = IMG_WIDTH - box_margin_x * 2 - 80
-    text_area_h = IMG_HEIGHT - box_margin_y * 2 - 60
+    text_area_w = IMG_WIDTH - box_margin_x * 2 - 40
+    text_area_h = IMG_HEIGHT - box_margin_y * 2 - 20
     font_name = random.choice(["NanumPen", "NanumBrush"])
     font, lines, fsize = _adjust_font_size(
         text, font_name, text_area_w, text_area_h, draw,
-        size_range=[68, 62, 56, 50, 46, 42]
+        size_range=[48, 44, 40, 36, 32, 28]
     )
 
     total_h = 0
@@ -356,7 +344,7 @@ def _style_center_box(text, output_path, theme_index=0):
         h = bbox[3] - bbox[1]
         line_heights.append(h)
         total_h += h
-    total_h += (len(lines) - 1) * 14
+    total_h += (len(lines) - 1) * 8
 
     y = (IMG_HEIGHT - total_h) // 2
     for i, line in enumerate(lines):
@@ -364,10 +352,11 @@ def _style_center_box(text, output_path, theme_index=0):
         w = bbox[2] - bbox[0]
         x = (IMG_WIDTH - w) // 2
         draw.text((x, y), line, fill=text_color, font=font)
-        y += line_heights[i] + 14
+        y += line_heights[i] + 8
 
+    # 상단 액센트 라인
     draw.rectangle(
-        [box_margin_x, box_margin_y, IMG_WIDTH - box_margin_x, box_margin_y + 4],
+        [box_margin_x, box_margin_y, IMG_WIDTH - box_margin_x, box_margin_y + 3],
         fill=theme["accent"]
     )
 
@@ -381,7 +370,7 @@ _STYLES = [_style_gradient_card, _style_split_card, _style_center_box]
 
 def generate_handwriting_image(text, output_path, style_index=None):
     """
-    소제목 텍스트를 카드형 이미지로 생성 (960x540)
+    소제목 텍스트를 가로형 배너 이미지로 생성 (680x200)
     """
     if style_index is None:
         style_idx = random.randint(0, len(_STYLES) - 1)
@@ -394,10 +383,10 @@ def generate_handwriting_image(text, output_path, style_index=None):
 
 def generate_blog_images(topic, content="", image_count=4, user_image_paths=None):
     """
-    블로그 본문 이미지 생성 (PIL 카드형 이미지)
+    블로그 본문 이미지 생성 (PIL 가로형 배너 이미지)
 
-    소제목을 추출하여 카드형 텍스트 이미지를 생성합니다.
-    960x540 표준 크기로 네이버 이미지 인식 대응.
+    소제목을 추출하여 가로형 배너 텍스트 이미지를 생성합니다.
+    680x200 가로형 크기로 자연스러운 블로그 구분선 역할.
     """
     body_images = []
 

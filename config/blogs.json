@@ -1,0 +1,33 @@
+{
+  "blogs": {
+    "yun_ung_chae": {
+      "display_name": "윤웅채 변리사 블로그",
+      "blog_id": "jninsa",
+      "blog_url": "https://blog.naver.com/jninsa",
+      "env_id_key": "NAVER_ID",
+      "env_pw_key": "NAVER_PW",
+      "default_persona": "yun_ung_chae",
+      "personas": ["yun_ung_chae"],
+      "description": "특허법인 테헤란 윤웅채 변리사 개인 블로그"
+    },
+    "teheran_official": {
+      "display_name": "특허법인 테헤란 공식 블로그",
+      "blog_id": "",
+      "blog_url": "",
+      "env_id_key": "NAVER_ID_TEHERAN",
+      "env_pw_key": "NAVER_PW_TEHERAN",
+      "default_persona": "teheran_official",
+      "personas": ["teheran_official"],
+      "description": "특허법인 테헤란 공식 법인 블로그"
+    }
+  },
+  "_guide": {
+    "새 블로그 추가 방법": [
+      "1. 이 파일에 blogs 항목 추가",
+      "2. config/personas/{persona_id}.json 생성",
+      "3. .env에 해당 블로그의 NAVER_ID_XXX, NAVER_PW_XXX 추가",
+      "4. persona_db/{persona_id}/ 폴더에 참고 글 데이터 추가",
+      "5. Streamlit UI에서 블로그 선택 → 키워드 입력 → 발행"
+    ]
+  }
+}
