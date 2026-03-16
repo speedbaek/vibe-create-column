@@ -1,129 +1,59 @@
 """
 칼럼 포맷팅 모듈
 - 마크다운 텍스트 → 블로그용 HTML 변환
-- 네이버 블로그 SmartEditor ONE 호환
 - 미리보기 HTML 생성
 """
 
 import re
-import html as html_mod
-
-
-def _inline_format(text):
-    """인라인 마크다운 변환 (bold, italic, 링크)
-
-    html.escape를 먼저 적용하되, 마크다운 기호(*, **, [])는 보존
-    """
-    # **bold** → <b>bold</b>
-    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-    # *italic* → <i>italic</i>
-    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
-    # [text](url) → <a href="url">text</a>
-    text = re.sub(
-        r"\[([^\]]+)\]\(([^)]+)\)",
-        r'<a href="\2" target="_blank">\1</a>',
-        text,
-    )
-    return text
+import html
 
 
 def _md_to_html_lines(text):
-    """마크다운 → HTML 변환 (네이버 블로그 최적화)"""
+    """간단한 마크다운 → HTML 변환"""
     lines = text.split("\n")
     html_lines = []
-    in_ul = False
-    in_ol = False
+    in_list = False
 
     for line in lines:
         stripped = line.strip()
 
         if not stripped:
-            if in_ul:
+            if in_list:
                 html_lines.append("</ul>")
-                in_ul = False
-            if in_ol:
-                html_lines.append("</ol>")
-                in_ol = False
-            html_lines.append("<p>&nbsp;</p>")
+                in_list = False
+            html_lines.append("<br>")
             continue
 
-        # 리스트 종료 체크 (리스트 아이템이 아닌 줄이 오면)
-        if not (stripped.startswith("- ") or stripped.startswith("* ") or
-                re.match(r"^\d+\.\s", stripped)):
-            if in_ul:
-                html_lines.append("</ul>")
-                in_ul = False
-            if in_ol:
-                html_lines.append("</ol>")
-                in_ol = False
-
-        # 헤딩 (네이버 블로그 스타일)
+        # 헤딩
         if stripped.startswith("### "):
-            content = _inline_format(stripped[4:])
-            html_lines.append(
-                f'<h3 style="font-size:16px;color:#333;margin:25px 0 10px 0;'
-                f'font-weight:bold;">{content}</h3>'
-            )
+            html_lines.append(f"<h3>{html.escape(stripped[4:])}</h3>")
         elif stripped.startswith("## "):
-            content = _inline_format(stripped[3:])
-            html_lines.append(
-                f'<h2 style="font-size:20px;color:#1a73e8;margin:30px 0 12px 0;'
-                f'font-weight:bold;border-bottom:2px solid #1a73e8;padding-bottom:6px;">'
-                f'{content}</h2>'
-            )
+            html_lines.append(f"<h2>{html.escape(stripped[3:])}</h2>")
         elif stripped.startswith("# "):
-            content = _inline_format(stripped[2:])
-            html_lines.append(
-                f'<h1 style="font-size:24px;color:#222;margin:0 0 15px 0;'
-                f'font-weight:bold;">{content}</h1>'
-            )
-        # 구분선
-        elif stripped in ("---", "***", "___"):
-            html_lines.append('<hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">')
-
-        # 인용 (blockquote)
-        elif stripped.startswith("> "):
-            content = _inline_format(stripped[2:])
-            html_lines.append(
-                f'<blockquote style="border-left:4px solid #1a73e8;margin:15px 0;'
-                f'padding:10px 15px;background:#f8f9fa;color:#555;'
-                f'font-style:italic;">{content}</blockquote>'
-            )
-
-        # 비순서 리스트
+            html_lines.append(f"<h1>{html.escape(stripped[2:])}</h1>")
+        # 리스트
         elif stripped.startswith("- ") or stripped.startswith("* "):
-            if not in_ul:
-                html_lines.append('<ul style="padding-left:20px;margin:10px 0;">')
-                in_ul = True
-            content = _inline_format(stripped[2:])
-            html_lines.append(
-                f'<li style="margin:5px 0;line-height:1.8;">{content}</li>'
-            )
-
-        # 순서 리스트
+            if not in_list:
+                html_lines.append("<ul>")
+                in_list = True
+            html_lines.append(f"<li>{html.escape(stripped[2:])}</li>")
         elif re.match(r"^\d+\.\s", stripped):
-            if not in_ol:
-                html_lines.append('<ol style="padding-left:20px;margin:10px 0;">')
-                in_ol = True
             content = re.sub(r"^\d+\.\s", "", stripped)
-            content = _inline_format(content)
-            html_lines.append(
-                f'<li style="margin:5px 0;line-height:1.8;">{content}</li>'
-            )
-
-        # 일반 단락
+            if not in_list:
+                html_lines.append("<ul>")
+                in_list = True
+            html_lines.append(f"<li>{html.escape(content)}</li>")
+        # 굵게/기울임
         else:
-            content = _inline_format(stripped)
-            html_lines.append(
-                f'<p style="margin:8px 0;line-height:1.9;font-size:16px;'
-                f'color:#333;">{content}</p>'
-            )
+            safe = html.escape(stripped)
+            # **bold**
+            safe = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", safe)
+            # *italic*
+            safe = re.sub(r"\*(.+?)\*", r"<em>\1</em>", safe)
+            html_lines.append(f"<p>{safe}</p>")
 
-    # 열린 리스트 닫기
-    if in_ul:
+    if in_list:
         html_lines.append("</ul>")
-    if in_ol:
-        html_lines.append("</ol>")
 
     return "\n".join(html_lines)
 
@@ -156,7 +86,7 @@ def format_column_html(text, persona_id, include_images=False, image_data=None):
                     alt = img.get("alt", "본문 이미지")
                     img_tag = (
                         f'</p><div style="text-align:center;margin:20px 0;">'
-                        f'<img src="{html_mod.escape(img_url)}" alt="{html_mod.escape(alt)}" '
+                        f'<img src="{html.escape(img_url)}" alt="{html.escape(alt)}" '
                         f'style="max-width:100%;border-radius:8px;"></div><p>'
                     )
                     paragraphs[insert_idx] = img_tag + paragraphs[insert_idx]
@@ -201,7 +131,7 @@ def format_column_preview(text, persona_id, image_data=None):
         if thumb_url:
             thumbnail_html = (
                 f'<div style="text-align:center;margin-bottom:20px;">'
-                f'<img src="{html_mod.escape(thumb_url)}" style="max-width:100%;border-radius:8px;">'
+                f'<img src="{html.escape(thumb_url)}" style="max-width:100%;border-radius:8px;">'
                 f'</div>'
             )
 
@@ -210,17 +140,15 @@ def format_column_preview(text, persona_id, image_data=None):
 <style>
 body {{ font-family: 'Noto Sans KR', sans-serif; max-width: 700px; margin: 0 auto;
        padding: 20px; line-height: 1.8; color: #333; }}
-h1 {{ font-size: 24px; margin-bottom: 15px; }}
-h2 {{ font-size: 20px; color: #1a73e8; margin-top: 30px; border-bottom: 2px solid #1a73e8; padding-bottom: 6px; }}
+h1 {{ font-size: 22px; margin-bottom: 10px; }}
+h2 {{ font-size: 18px; color: #1a73e8; margin-top: 30px; }}
 h3 {{ font-size: 16px; margin-top: 25px; }}
-p {{ margin: 8px 0; line-height: 1.9; font-size: 16px; }}
-ul, ol {{ padding-left: 20px; }}
-li {{ margin: 5px 0; }}
-blockquote {{ border-left: 4px solid #1a73e8; margin: 15px 0; padding: 10px 15px;
-             background: #f8f9fa; color: #555; font-style: italic; }}
+p {{ margin: 8px 0; }}
+ul {{ padding-left: 20px; }}
+li {{ margin: 4px 0; }}
 </style></head><body>
 {thumbnail_html}
-<h1>{html_mod.escape(title)}</h1>
+<h1>{html.escape(title)}</h1>
 <hr>
 {content_html}
 </body></html>"""

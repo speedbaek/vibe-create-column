@@ -38,6 +38,13 @@ debug_screenshots*/
 
 # Chrome debug profile
 chrome_debug_profile/
+pw_browser_data/
+
+# Temp files
+*.tmp.*
+
+# Fonts (auto-downloaded)
+fonts/
 
 # Claude Code
 .claude/
