@@ -12,13 +12,13 @@
     },
     "teheran_official": {
       "display_name": "특허법인 테헤란 공식 블로그",
-      "blog_id": "",
-      "blog_url": "",
+      "blog_id": "gempy123",
+      "blog_url": "https://blog.naver.com/gempy123",
       "env_id_key": "NAVER_ID_TEHERAN",
       "env_pw_key": "NAVER_PW_TEHERAN",
       "default_persona": "teheran_official",
       "personas": ["teheran_official"],
-      "description": "특허법인 테헤란 공식 법인 블로그"
+      "description": "특허법인 테헤란 공식 법인 블로그 (지식재산연구소)"
     }
   },
   "_guide": {
