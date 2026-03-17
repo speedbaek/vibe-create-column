@@ -934,6 +934,76 @@ with tab2:
                     st.session_state.smart_schedule = None
                     st.rerun()
 
+        # ── 예약 대기 현황 ──
+        st.divider()
+        st.markdown("### 📋 예약 대기 현황")
+
+        if SCHEDULER_LOADED:
+            all_jobs = get_all_jobs()
+            pending_jobs = [j for j in all_jobs if j.get("status") == "pending"]
+            publishing_jobs = [j for j in all_jobs if j.get("status") == "publishing"]
+            published_jobs = [j for j in all_jobs if j.get("status") == "published"]
+            failed_jobs = [j for j in all_jobs if j.get("status") == "failed"]
+
+            col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+            col_p1.metric("대기중", f"{len(pending_jobs)}건")
+            col_p2.metric("발행중", f"{len(publishing_jobs)}건")
+            col_p3.metric("완료", f"{len(published_jobs)}건")
+            col_p4.metric("실패", f"{len(failed_jobs)}건")
+
+            if pending_jobs:
+                # 날짜별 그룹핑
+                by_date = {}
+                for j in pending_jobs:
+                    sched_time = j.get("scheduled_time", "")
+                    date_part = sched_time.split(" ")[0] if " " in sched_time else "즉시"
+                    by_date.setdefault(date_part, []).append(j)
+
+                for date_key in sorted(by_date.keys()):
+                    jobs_list = by_date[date_key]
+                    # 블로그별 구분
+                    blog_names = set()
+                    for j in jobs_list:
+                        bk = j.get("blog_key", "")
+                        bconf = BLOG_CONFIG.get(bk, {})
+                        blog_names.add(bconf.get("display_name", bk))
+
+                    st.markdown(f"**📅 {date_key}** — {', '.join(blog_names)} ({len(jobs_list)}건)")
+
+                    for j in sorted(jobs_list, key=lambda x: x.get("scheduled_time", "")):
+                        sched_time = j.get("scheduled_time", "")
+                        time_part = sched_time.split(" ")[1] if " " in sched_time else "즉시"
+                        bk = j.get("blog_key", "")
+                        bconf = BLOG_CONFIG.get(bk, {})
+                        blog_label = bconf.get("display_name", bk)[:6]
+
+                        col_j1, col_j2, col_j3, col_j4 = st.columns([1, 3, 1.5, 0.5])
+                        col_j1.write(f"`{time_part}`")
+                        col_j2.write(j.get("topic", ""))
+                        col_j3.write(f"_{blog_label}_")
+                        if col_j4.button("❌", key=f"del_job_{j['id']}"):
+                            remove_job(j["id"])
+                            st.rerun()
+
+            elif not published_jobs and not failed_jobs:
+                st.info("예약된 작업이 없습니다. 위에서 키워드 미리보기 → 예약 등록을 진행해보세요.")
+
+            # 완료/실패 내역 (접힘)
+            if published_jobs or failed_jobs:
+                with st.expander(f"최근 발행 내역 ({len(published_jobs)}건 완료 / {len(failed_jobs)}건 실패)"):
+                    for j in sorted(published_jobs + failed_jobs, key=lambda x: x.get("published_at", x.get("created_at", "")), reverse=True)[:10]:
+                        status_icon = "✅" if j["status"] == "published" else "❌"
+                        url = j.get("result_url", "")
+                        title = j.get("result_title", j.get("topic", ""))
+                        st.write(f"{status_icon} **{title}** {'— [링크](' + url + ')' if url else ''}")
+
+                    if len(published_jobs) > 0:
+                        if st.button("완료 내역 정리", key="clear_completed_smart"):
+                            clear_completed()
+                            st.rerun()
+        else:
+            st.warning("스케줄러 모듈이 로드되지 않았습니다.")
+
 
 # Tab 3: 단건 칼럼 생성
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
