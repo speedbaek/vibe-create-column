@@ -263,6 +263,107 @@ def smart_select_keywords(persona_id="yun_ung_chae", count=3, min_volume=50):
     return selected
 
 
+def distribute_times(date_str, count):
+    """
+    하루 중 발행 시간을 사람처럼 랜덤 분배
+
+    규칙:
+    - 발행 가능 시간: 07:00 ~ 22:00
+    - 간격: 10분~90분 사이 랜덤 (균등하지 않게)
+    - 너무 밤늦게/새벽은 피함
+
+    Args:
+        date_str: 날짜 문자열 "2026-03-20"
+        count: 발행 수
+
+    Returns:
+        list[str]: ["2026-03-20 08:23", "2026-03-20 09:47", ...]
+    """
+    from datetime import datetime, timedelta
+
+    # 발행 가능 시간대 (07:00 ~ 22:00 = 15시간 = 900분)
+    start_hour = 7
+    end_hour = 22
+    total_minutes = (end_hour - start_hour) * 60  # 900분
+
+    if count <= 0:
+        return []
+
+    if count == 1:
+        # 1개면 피크 시간대에서 랜덤
+        peak_hours = [9, 10, 12, 13, 14, 17, 18]
+        hour = random.choice(peak_hours)
+        minute = random.randint(0, 59)
+        return [f"{date_str} {hour:02d}:{minute:02d}"]
+
+    # 여러 개: 전체 시간대를 대략 나눈 뒤 랜덤 오프셋
+    # 최소 간격 10분 보장
+    min_gap = 10
+
+    # 시작점을 랜덤하게 (07:00~08:30 사이)
+    first_offset = random.randint(0, 90)
+
+    times = []
+    current = first_offset
+
+    for i in range(count):
+        if i == 0:
+            offset = current
+        else:
+            # 남은 시간을 남은 포스팅 수로 나눈 범위 내에서 랜덤 간격
+            remaining_posts = count - i
+            remaining_minutes = total_minutes - current
+            avg_gap = remaining_minutes / remaining_posts
+
+            # 간격을 10분~최대 사이에서 랜덤 (사람처럼 불규칙)
+            max_gap = min(int(avg_gap * 1.8), 120)
+            min_g = max(min_gap, int(avg_gap * 0.3))
+            gap = random.randint(min_g, max(min_g, max_gap))
+
+            offset = current + gap
+
+        # 시간대 범위 초과 방지
+        if offset >= total_minutes:
+            offset = total_minutes - random.randint(5, 30)
+
+        current = offset
+
+        hour = start_hour + offset // 60
+        minute = offset % 60
+        times.append(f"{date_str} {hour:02d}:{minute:02d}")
+
+    return times
+
+
+def build_schedule(date_str, persona_id, count, min_volume=50):
+    """
+    스마트 예약발행 스케줄 생성
+
+    Args:
+        date_str: 발행 날짜 "2026-03-20"
+        persona_id: 페르소나 ID
+        count: 발행 수
+        min_volume: 최소 조회수
+
+    Returns:
+        list[dict]: [{keyword, category, total, time, row_index}, ...]
+    """
+    keywords = smart_select_keywords(persona_id, count=count, min_volume=min_volume)
+    times = distribute_times(date_str, len(keywords))
+
+    schedule = []
+    for kw, t in zip(keywords, times):
+        schedule.append({
+            "keyword": kw["keyword"],
+            "category": kw["category"],
+            "total": kw["total"],
+            "time": t,
+            "row_index": kw["row_index"],
+        })
+
+    return schedule
+
+
 def mark_published(row_index, publish_date=None, post_url=""):
     """
     발행 완료 후 시트에 기록

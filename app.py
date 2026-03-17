@@ -48,6 +48,15 @@ try:
 except ImportError:
     IMAGE_LOADED = False
 
+try:
+    from src.sheet_manager import (
+        get_sheet_stats, smart_select_keywords, build_schedule,
+        mark_published, auto_fill_categories, get_available_keywords,
+    )
+    SHEET_LOADED = True
+except ImportError:
+    SHEET_LOADED = False
+
 # 모델 목록 로드
 def load_models():
     try:
@@ -315,8 +324,9 @@ with st.sidebar:
 
 # -- 메인 탭 --
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🚀 자동 생성 & 발행",
+    "📅 스마트 예약",
     "📝 단건 칼럼 생성",
     "⚙️ 프롬프트 설정",
     "🌐 블로그 스크래퍼",
@@ -791,9 +801,138 @@ with tab1:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Tab 2: 단건 칼럼 생성
+# Tab 2: 스마트 예약발행
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 with tab2:
+    st.markdown("### 📅 스마트 예약발행")
+    st.caption("날짜 + 블로그 + 포스팅 수만 입력하면 키워드 자동 선정 → 예약 등록")
+
+    if not SHEET_LOADED:
+        st.error("sheet_manager 모듈을 불러오지 못했습니다.")
+    else:
+        # 시트 통계
+        try:
+            stats = get_sheet_stats()
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            col_stat1.metric("전체 키워드", f"{stats['total_keywords']}개")
+            col_stat2.metric("발행 완료", f"{stats['published']}개")
+            col_stat3.metric("미발행", f"{stats['remaining']}개")
+
+            if stats.get("category_distribution"):
+                with st.expander("카테고리 분포"):
+                    for cat, cnt in sorted(stats["category_distribution"].items(), key=lambda x: -x[1]):
+                        pct = cnt / stats["total_keywords"] * 100
+                        st.write(f"**{cat}**: {cnt}개 ({pct:.0f}%)")
+        except Exception as e:
+            st.warning(f"시트 통계 로드 실패: {e}")
+
+        st.divider()
+
+        # 입력 폼
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            schedule_date = st.date_input(
+                "발행 날짜",
+                value=datetime.now().date() + timedelta(days=1),
+                min_value=datetime.now().date(),
+            )
+        with col_b:
+            schedule_blog = st.selectbox(
+                "블로그 선택",
+                options=list(blogs_config.keys()) if blogs_config else ["yun_ung_chae"],
+                format_func=lambda x: blogs_config.get(x, {}).get("name", x) if blogs_config else x,
+                key="schedule_blog",
+            )
+        with col_c:
+            schedule_count = st.number_input("포스팅 수", min_value=1, max_value=10, value=3, key="schedule_count")
+
+        col_btn1, col_btn2 = st.columns(2)
+        preview_clicked = col_btn1.button("🔍 키워드 미리보기", use_container_width=True)
+        register_clicked = col_btn2.button("🚀 예약 등록", use_container_width=True, type="primary")
+
+        # 세션 상태로 스케줄 관리
+        if "smart_schedule" not in st.session_state:
+            st.session_state.smart_schedule = None
+
+        if preview_clicked:
+            with st.spinner("키워드 선정 + 시간 분배 중..."):
+                try:
+                    # 블로그 키에서 persona_id 추출
+                    blog_conf = blogs_config.get(schedule_blog, {})
+                    persona_id = blog_conf.get("persona_id", schedule_blog)
+
+                    schedule = build_schedule(
+                        date_str=schedule_date.strftime("%Y-%m-%d"),
+                        persona_id=persona_id,
+                        count=schedule_count,
+                    )
+                    st.session_state.smart_schedule = schedule
+                    st.session_state.schedule_blog = schedule_blog
+                    st.session_state.schedule_date = schedule_date.strftime("%Y-%m-%d")
+                except Exception as e:
+                    st.error(f"키워드 선정 실패: {e}")
+
+        # 스케줄 미리보기 표시
+        if st.session_state.smart_schedule:
+            schedule = st.session_state.smart_schedule
+
+            st.markdown("#### 선정된 키워드 + 발행 시간")
+
+            # 카테고리 다양성 표시
+            cats = [s["category"] for s in schedule if s["category"]]
+            unique_cats = set(cats)
+            st.success(f"카테고리 분포: {', '.join(f'{c}' for c in unique_cats)} ({len(unique_cats)}종류)")
+
+            for i, item in enumerate(schedule):
+                time_str = item["time"].split(" ")[1] if " " in item["time"] else item["time"]
+                col_t, col_k, col_c2, col_v = st.columns([1, 3, 1.5, 1])
+                col_t.markdown(f"**{time_str}**")
+                col_k.write(item["keyword"])
+                col_c2.write(f"`{item['category']}`")
+                col_v.write(f"조회수 {item['total']}")
+
+            st.divider()
+
+        if register_clicked:
+            schedule = st.session_state.get("smart_schedule")
+            if not schedule:
+                st.warning("먼저 '키워드 미리보기'를 클릭하세요.")
+            elif not SCHEDULER_LOADED:
+                st.error("스케줄러 모듈이 로드되지 않았습니다.")
+            else:
+                blog_key = st.session_state.get("schedule_blog", schedule_blog)
+                blog_conf = blogs_config.get(blog_key, {})
+                persona_id = blog_conf.get("persona_id", blog_key)
+                persona_name = blog_conf.get("persona_name", "")
+                blog_id = blog_conf.get("blog_id", "")
+
+                registered = 0
+                for item in schedule:
+                    try:
+                        job = add_job(
+                            topic=item["keyword"],
+                            persona_id=persona_id,
+                            persona_name=persona_name,
+                            scheduled_time=item["time"],
+                            model_id=selected_model,
+                            blog_id=blog_id,
+                            blog_key=blog_key,
+                            sheet_row_index=item.get("row_index"),
+                        )
+                        if job:
+                            registered += 1
+                    except Exception as e:
+                        st.error(f"예약 실패 ({item['keyword']}): {e}")
+
+                if registered > 0:
+                    st.success(f"✅ {registered}건 예약 등록 완료! ({st.session_state.get('schedule_date', '')})")
+                    st.session_state.smart_schedule = None
+                    st.rerun()
+
+
+# Tab 3: 단건 칼럼 생성
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with tab3:
     st.markdown("### 단건 칼럼 생성")
     st.caption("키워드 하나로 칼럼을 스트리밍 생성합니다.")
 
@@ -904,9 +1043,9 @@ with tab2:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Tab 3: 프롬프트 & DB 설정
+# Tab 4: 프롬프트 & DB 설정
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tab3:
+with tab4:
     st.markdown("### 프롬프트 관리")
 
     prompt_tab, rules_tab, persona_tab = st.tabs(["기본 프롬프트", "사람냄새 규칙", "페르소나 설정"])
@@ -970,9 +1109,9 @@ with tab3:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Tab 4: 블로그 스크래퍼
+# Tab 5: 블로그 스크래퍼
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tab4:
+with tab5:
     st.markdown("### 네이버 블로그 자동 수집기")
 
     col_a, col_b = st.columns(2)
@@ -1013,9 +1152,9 @@ with tab4:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Tab 5: 발행 히스토리
+# Tab 6: 발행 히스토리
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tab5:
+with tab6:
     st.markdown("### 발행 히스토리")
 
     history_file = f"outputs/{selected_persona_id}/history.json"

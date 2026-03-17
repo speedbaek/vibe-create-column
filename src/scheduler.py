@@ -54,13 +54,15 @@ def add_job(topic, persona_id, persona_name, blog_key,
             model_id="claude-sonnet-4-6", temperature=0.7,
             include_images=True, image_count=None,
             category_no=None, scheduled_time=None,
-            override_title=None):
+            override_title=None, blog_id=None,
+            sheet_row_index=None):
     """
     예약 작업 추가
 
     Args:
         topic: 키워드/주제
         scheduled_time: 예약 시간 (ISO format). None이면 즉시 발행.
+        sheet_row_index: 구글시트 행 번호 (발행 완료 시 시트 기록용)
     """
     jobs = load_jobs()
     job = {
@@ -69,6 +71,7 @@ def add_job(topic, persona_id, persona_name, blog_key,
         "persona_id": persona_id,
         "persona_name": persona_name,
         "blog_key": blog_key,
+        "blog_id": blog_id or "",
         "model_id": model_id,
         "temperature": temperature,
         "include_images": include_images,
@@ -76,6 +79,7 @@ def add_job(topic, persona_id, persona_name, blog_key,
         "category_no": category_no,
         "scheduled_time": scheduled_time,
         "override_title": override_title,
+        "sheet_row_index": sheet_row_index,
         "mode": "scheduled" if scheduled_time else "immediate",
         "status": "pending",
         "created_at": datetime.now().isoformat(),
@@ -219,6 +223,19 @@ def execute_job(job, progress_callback=None):
             )
             if progress_callback:
                 progress_callback(job_id, "published", result.get("url", ""))
+
+            # 구글시트에 발행 완료 기록
+            sheet_row = job.get("sheet_row_index")
+            if sheet_row:
+                try:
+                    from src.sheet_manager import mark_published
+                    mark_published(
+                        row_index=sheet_row,
+                        post_url=result.get("url", ""),
+                    )
+                except Exception as e:
+                    print(f"[scheduler] 시트 기록 실패 (발행은 성공): {e}")
+
             return {
                 "job_id": job_id, "success": True,
                 "url": result.get("url"), "title": result.get("title"),
