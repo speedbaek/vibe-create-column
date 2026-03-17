@@ -443,9 +443,27 @@ def _get_sample_titles(persona_id, count=30):
     return sample
 
 
+def _get_recent_title_patterns(persona_id, count=5):
+    """최근 발행된 제목에서 사용된 패턴 추출 (중복 방지용)"""
+    jobs_path = "data/jobs.json"
+    recent_titles = []
+    try:
+        with open(jobs_path, "r", encoding="utf-8") as f:
+            jobs = json.load(f)
+        # 해당 페르소나의 최근 발행 제목
+        for job in reversed(jobs):
+            if job.get("persona_id") == persona_id and job.get("title"):
+                recent_titles.append(job["title"])
+                if len(recent_titles) >= count:
+                    break
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return recent_titles
+
+
 def generate_hooking_title(topic, persona_id="yun_ung_chae",
                             model_id="claude-sonnet-4-6",
-                            count=3):
+                            count=5):
     """
     키워드/주제로부터 후킹 강한 블로그 제목 생성
 
@@ -453,7 +471,7 @@ def generate_hooking_title(topic, persona_id="yun_ung_chae",
         topic: 키워드 또는 주제 (예: "상표등록", "스타트업 특허")
         persona_id: 페르소나 ID
         model_id: AI 모델
-        count: 생성할 제목 후보 수 (기본 3개)
+        count: 생성할 제목 후보 수 (기본 5개)
 
     Returns:
         list[str]: 생성된 제목 후보 리스트
@@ -461,27 +479,52 @@ def generate_hooking_title(topic, persona_id="yun_ung_chae",
     client = _get_client()
     title_style = load_title_style()
     sample_titles = _get_sample_titles(persona_id, count=30)
+    recent_titles = _get_recent_title_patterns(persona_id, count=5)
 
     sample_text = "\n".join(f"- {t}" for t in sample_titles)
+
+    # 최근 제목 패턴 회피 지시
+    avoid_text = ""
+    if recent_titles:
+        recent_list = "\n".join(f"- {t}" for t in recent_titles)
+        avoid_text = f"""
+## 최근 사용한 제목 (이 패턴과 유사한 구조는 피하세요)
+{recent_list}
+위 제목들과 구조/패턴이 겹치지 않도록 다양한 패턴을 선택하세요.
+"""
+
+    # 페르소나별 톤 지시
+    persona_tone = ""
+    try:
+        json_path = os.path.join(PERSONAS_DIR, f"{persona_id}.json")
+        with open(json_path, "r", encoding="utf-8") as f:
+            pdata = json.load(f)
+        persona_name = pdata.get("name", "")
+        personality = pdata.get("personality", "")
+        if persona_name:
+            persona_tone = f"\n## 제목 톤\n- 작성자: {persona_name}\n- 톤앤매너: {personality}\n"
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
 
     prompt = f"""당신은 네이버 블로그 제목을 작성하는 전문가입니다.
 아래의 스타일 가이드와 실제 제목 예시를 참고하여, 주어진 키워드/주제에 맞는 블로그 제목을 {count}개 생성하세요.
 
 ## 제목 스타일 가이드
 {title_style}
-
+{persona_tone}
 ## 실제 블로그 제목 예시 (이 문체와 패턴을 참고)
 {sample_text}
-
+{avoid_text}
 ## 키워드/주제
 {topic}
 
 ## 생성 규칙
-1. 위 스타일 가이드의 10가지 패턴 중 서로 다른 패턴을 사용하세요.
-2. 각 제목은 30~50자 사이여야 합니다.
-3. 실제 변리사가 직접 쓴 것처럼 자연스러운 한국어를 사용하세요.
+1. 위 스타일 가이드의 14가지 패턴 중 **{count}개 모두 서로 다른 패턴**을 사용하세요.
+2. 각 제목은 25~50자 사이여야 합니다.
+3. 실제 전문가가 직접 쓴 것처럼 자연스러운 한국어를 사용하세요.
 4. AI가 쓴 느낌이 나는 표현은 절대 사용하지 마세요.
 5. 키워드를 제목 앞부분에 자연스럽게 배치하세요.
+6. 반드시 괄호강조형, 정보성짧은제목, 숫자리스트형, 비용임팩트형 중 최소 2개를 포함하세요.
 
 ## 출력 형식
 제목만 한 줄에 하나씩 출력하세요. 번호, 따옴표, 설명 없이 제목 텍스트만 출력합니다.

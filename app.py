@@ -851,7 +851,7 @@ with tab2:
                             topic=topic.strip(),
                             persona_id=selected_persona_id,
                             model_id=selected_model,
-                            count=3,
+                            count=5,
                         )
                         if hooking_titles:
                             title_container.markdown("**생성된 제목:** " + " | ".join(hooking_titles))
