@@ -541,6 +541,7 @@ with tab1:
                                 for i, result in enumerate(successful):
                                     title = result.get("title", "")
                                     content = result.get("raw_content", "")
+                                    image_data = result.get("image_data")
                                     cat_no = None
                                     # batch_items에서 카테고리 정보 매칭
                                     if i < len(st.session_state.batch_items):
@@ -551,17 +552,13 @@ with tab1:
                                     publish_log.info(f"[{i+1}/{len(successful)}] '{title[:30]}...' 발행 중...")
 
                                     try:
-                                        # SmartEditor HTML 우선, 없으면 raw_content
-                                        se_html = result.get("smarteditor_html", "")
-                                        post_content = se_html if se_html else content
-                                        use_html = bool(se_html)
-
-                                        post_result = await poster.post(
+                                        post_result = await poster.post_with_se_data(
                                             title=title,
-                                            content=post_content,
+                                            content=content,
                                             blog_id=naver_id,
                                             category_no=cat_no,
-                                            use_html=use_html,
+                                            image_data=image_data,
+                                            progress_callback=lambda msg: publish_log.info(f"[{i+1}/{len(successful)}] {msg}"),
                                         )
                                         results.append({
                                             "title": title,

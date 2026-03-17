@@ -60,9 +60,10 @@ class NaverPoster:
         self.context = self.browser.contexts[0]
 
     async def login(self, naver_id=None, naver_pw=None):
-        """네이버 로그인 상태 확인 (이미 로그인된 Chrome 사용)"""
-        naver_id = naver_id or os.environ.get("NAVER_ID", "")
-        if not naver_id:
+        """네이버 자동 로그인 (세션 유효하면 스킵)"""
+        self._naver_id = naver_id or os.environ.get("NAVER_ID", "")
+        self._naver_pw = naver_pw or os.environ.get("NAVER_PW", "")
+        if not self._naver_id:
             raise ValueError("NAVER_ID가 설정되지 않았습니다.")
 
         # 기존 탭에서 페이지 획득
@@ -72,22 +73,94 @@ class NaverPoster:
         else:
             self.page = await self.context.new_page()
 
-        # 에디터 페이지로 직접 이동하여 로그인 확인
-        # (로그인 안 되면 에디터가 로드되지 않음)
+        return True
+
+    async def _do_login(self):
+        """네이버 로그인 페이지에서 자동 로그인 수행"""
+        if not self._naver_pw:
+            raise RuntimeError(
+                "NAVER_PW가 설정되지 않았습니다. .env 파일에 NAVER_PW를 추가해주세요."
+            )
+
+        await self.page.goto("https://nid.naver.com/nidlogin.login")
+        await self.page.wait_for_load_state("networkidle")
+        await asyncio.sleep(2)
+
+        # 이미 로그인된 경우 (메인으로 리디렉트)
+        if "nidlogin" not in self.page.url and "login" not in self.page.url:
+            return True
+
+        # evaluate로 ID/PW 설정 (Playwright type/fill은 contentEditable 이슈)
+        login_result = await self.page.evaluate(
+            """(credentials) => {
+                const idEl = document.querySelector('#id');
+                const pwEl = document.querySelector('#pw');
+                if (!idEl || !pwEl) return {ok: false, error: 'login fields not found'};
+
+                idEl.value = credentials.id;
+                pwEl.value = credentials.pw;
+
+                ['input', 'change'].forEach(evt => {
+                    idEl.dispatchEvent(new Event(evt, {bubbles: true}));
+                    pwEl.dispatchEvent(new Event(evt, {bubbles: true}));
+                });
+
+                return {ok: true};
+            }""",
+            {"id": self._naver_id, "pw": self._naver_pw}
+        )
+
+        if not login_result.get("ok"):
+            raise RuntimeError(f"로그인 필드 설정 실패: {login_result}")
+
+        # 로그인 버튼 클릭
+        await asyncio.sleep(1)
+        try:
+            login_btn = self.page.locator("#log\\.login").first
+            if await login_btn.is_visible(timeout=2000):
+                await login_btn.click()
+            else:
+                login_btn = self.page.locator('button.btn_login, button[type="submit"]').first
+                await login_btn.click()
+        except Exception:
+            await self.page.evaluate('document.querySelector("form").submit()')
+
+        await asyncio.sleep(5)
+
+        # 기기 등록 페이지 처리
+        if "deviceConfirm" in self.page.url:
+            try:
+                register_btn = self.page.locator('button:has-text("등록")').first
+                if await register_btn.is_visible(timeout=3000):
+                    await register_btn.click()
+                    await asyncio.sleep(3)
+            except Exception:
+                pass
+
+        # 최종 확인
+        if "nidlogin" in self.page.url or "login" in self.page.url:
+            raise RuntimeError("자동 로그인 실패 - 캡차 또는 2차 인증이 필요할 수 있습니다.")
+
         return True
 
     async def _navigate_to_editor(self, blog_id):
-        """에디터 페이지로 이동"""
+        """에디터 페이지로 이동 (로그인 안 되면 자동 로그인 시도)"""
         url = EDITOR_URL.format(blog_id=blog_id)
         await self.page.goto(url)
         await self.page.wait_for_load_state("networkidle")
         await asyncio.sleep(2)
 
-        # 로그인 리디렉트 감지
+        # 로그인 리디렉트 감지 → 자동 로그인 시도
         if "nidlogin" in self.page.url or "login" in self.page.url:
-            raise RuntimeError(
-                "네이버 로그인이 필요합니다. Chrome에서 먼저 로그인해주세요."
-            )
+            await self._do_login()
+            # 로그인 후 에디터로 재이동
+            await self.page.goto(url)
+            await self.page.wait_for_load_state("networkidle")
+            await asyncio.sleep(2)
+
+        # 그래도 로그인 안 되면 에러
+        if "nidlogin" in self.page.url or "login" in self.page.url:
+            raise RuntimeError("로그인 실패 - 에디터 진입 불가")
 
         # 에디터 로드 대기
         await self.page.wait_for_function(
@@ -556,6 +629,128 @@ class NaverPoster:
 
         # 8. 발행
         result = await self._publish()
+        return result
+
+    async def post_with_se_data(self, title, content, blog_id=None,
+                               category_no=None, local_image_paths=None,
+                               image_data=None, progress_callback=None):
+        """
+        setDocumentData 방식으로 블로그 글 발행 (auto_post.py 검증 완료 패턴)
+
+        Args:
+            title: 글 제목
+            content: 본문 (마크다운/plain text)
+            blog_id: 블로그 ID (없으면 NAVER_ID 사용)
+            category_no: 카테고리 번호
+            local_image_paths: 로컬 이미지 파일 경로 리스트
+            image_data: orchestrator에서 받은 이미지 데이터 (DALL-E URL 포함)
+            progress_callback: 진행상황 콜백 함수 (msg: str) -> None
+
+        Returns:
+            dict: {'success': bool, 'url': str, ...}
+        """
+        blog_id = blog_id or os.environ.get("NAVER_ID", "")
+
+        def _log(msg):
+            if progress_callback:
+                progress_callback(msg)
+
+        if not self.browser:
+            await self.connect()
+
+        await self.login()
+
+        # Step 1: 에디터 이동
+        _log("에디터 페이지 이동 중...")
+        await self._navigate_to_editor(blog_id)
+
+        # Step 2: DALL-E 이미지 로컬 다운로드 (아직 안 된 경우)
+        actual_local_paths = local_image_paths or []
+        if not actual_local_paths and image_data:
+            _log("DALL-E 이미지 다운로드 중...")
+            from src.image_handler import download_dalle_images
+            images_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "outputs", "images"
+            )
+            actual_local_paths = [
+                p for p in download_dalle_images(image_data, output_dir=images_dir) if p
+            ]
+            _log(f"이미지 다운로드 완료: {len(actual_local_paths)}장")
+
+        # Step 3: 이미지 네이버 CDN 업로드
+        native_image_components = []
+        if actual_local_paths:
+            _log(f"이미지 {len(actual_local_paths)}장 CDN 업로드 중...")
+            from src.naver_uploader import upload_images_to_naver
+            upload_results = await upload_images_to_naver(
+                self.page, blog_id, actual_local_paths
+            )
+            native_image_components = [r for r in upload_results if r and r.get('src')]
+            _log(f"CDN 업로드 완료: {len(native_image_components)}/{len(actual_local_paths)}장")
+
+            if actual_local_paths and not native_image_components:
+                return {"success": False, "error": "이미지 CDN 업로드 전부 실패"}
+
+        # Step 4: SE Document Data 빌드
+        _log("SE Document Data 빌드 중...")
+        from src.se_converter import build_document_data
+        se_doc_data = build_document_data(
+            title=title,
+            text=content,
+            image_urls=native_image_components if native_image_components else None,
+        )
+
+        # Step 5: setDocumentData로 제목+본문 설정
+        _log("setDocumentData 설정 중...")
+        content_result = await self.page.evaluate(
+            """(docData) => {
+                var ed = SmartEditor._editors.blogpc001;
+                var ds = ed._documentService;
+                try {
+                    ds.setDocumentData(docData);
+                    var ct = ds.getContentText();
+                    return {
+                        ok: ct.length > 10,
+                        method: 'setDocumentData',
+                        contentLen: ct.length,
+                        isEmpty: ed.isEmptyDocumentContent(),
+                    };
+                } catch(e) {
+                    return {ok: false, error: e.message};
+                }
+            }""",
+            se_doc_data
+        )
+
+        # setDocumentData 실패 시 plain text 폴백
+        if not content_result.get('ok'):
+            _log("setDocumentData 실패 → plain text 폴백...")
+            await self._set_title(title)
+            content_result = await self._set_content_plain(content)
+
+        if content_result.get('isEmpty'):
+            return {"success": False, "error": "본문 설정 실패 (isEmpty=true)"}
+
+        # Step 6: 카테고리 설정
+        if category_no:
+            await self._set_category(category_no)
+
+        # Step 7: 유효성 검증
+        _log("유효성 검증 중...")
+        validation = await self._validate()
+        if not validation.get("valid"):
+            return {
+                "success": False,
+                "error": f"검증 실패: {validation.get('reason')}",
+                "validation": validation,
+            }
+
+        # Step 8: 발행
+        _log("발행 중...")
+        result = await self._publish()
+        if result.get("success"):
+            _log(f"발행 성공! {result.get('url', '')}")
         return result
 
     async def close(self):

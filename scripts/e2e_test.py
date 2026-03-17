@@ -16,7 +16,7 @@ load_dotenv(override=True)
 
 
 def main():
-    topic = "특허 명세서 작성 핵심 포인트"
+    topic = "AI 특허등록"
     persona_id = "yun_ung_chae"
     persona_name = "윤웅채"
 
@@ -116,8 +116,13 @@ def main():
     output_dir = os.path.join(project_root, "outputs")
     os.makedirs(output_dir, exist_ok=True)
 
+    # 제목 직접 지정 (override_title이 있으면 사용)
+    override_title = "AI 특허등록, 초심자가 놓치기 쉬운 3가지 주의점"
+    final_title = override_title if override_title else result["title"]
+    print(f"  최종 제목: {final_title}")
+
     post_data = {
-        "title": result["title"],
+        "title": final_title,
         "content": raw,
         "local_image_paths": local_image_paths,
         "image_data": image_data,

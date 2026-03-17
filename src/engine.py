@@ -343,11 +343,70 @@ def _build_prompt_text(persona_id, persona_name, topic, context_text):
     return prompt_text
 
 
-def generate_column(persona_id, persona_name, topic, model_id="claude-sonnet-4-6", temperature=0.7):
-    """컬럼 생성 (비스트리밍)"""
+def research_topic(topic, model_id="claude-sonnet-4-6"):
+    """Step 1: 주제에 대한 외부 지식 리서치 (팩트, 사례, 법률 근거 수집)"""
     client = _get_client()
+
+    research_prompt = f"""당신은 한국 지식재산권(특허, 상표, 디자인) 분야의 법률 리서치 전문가입니다.
+
+아래 주제에 대해 블로그 칼럼 작성에 활용할 수 있는 정보를 리서치하여 정리해주세요.
+
+## 리서치 주제
+{topic}
+
+## 리서치 항목 (아래 내용을 모두 포함)
+1. **법률 근거**: 관련 법 조항, 시행령, 심사기준 (구체적 조문 번호 포함)
+2. **실무 절차**: 실제 진행 절차, 소요 기간, 필요 서류
+3. **비용 정보**: 관납료, 대리인 수수료 범위 (구체적 금액)
+4. **자주 하는 실수/주의점**: 일반인이 흔히 저지르는 실수 3~5가지
+5. **실제 사례**: 관련 판례, 심판 사례, 또는 실무에서 자주 보는 케이스 2~3개
+6. **최신 동향**: 최근 법 개정, 제도 변화, 트렌드
+
+## 출력 규칙
+- 정확한 팩트 위주로 정리 (추측이면 "추정" 표기)
+- 한국 특허청(KIPO) 기준으로 작성
+- 글쓰기 형태가 아닌, 리서치 노트 형태로 간결하게 정리
+- 2000자 이내"""
+
+    message = client.messages.create(
+        model=model_id,
+        max_tokens=2048,
+        temperature=0.3,
+        messages=[
+            {"role": "user", "content": research_prompt}
+        ]
+    )
+
+    return message.content[0].text
+
+
+def generate_column(persona_id, persona_name, topic, model_id="claude-sonnet-4-6", temperature=0.7):
+    """컬럼 생성 (비스트리밍) - 2단계: 리서치 → 글쓰기"""
+    client = _get_client()
+
+    # Step 1: 주제 리서치
+    print(f"  [리서치] '{topic}' 주제 리서치 중...")
+    research_result = research_topic(topic, model_id)
+    print(f"  [리서치] 완료 ({len(research_result)}자)")
+
+    # Step 2: 리서치 결과 + 과거 글 DB로 칼럼 생성
     context_text = get_retriever_context(persona_id, topic)
     prompt_text = _build_prompt_text(persona_id, persona_name, topic, context_text)
+
+    # 리서치 결과를 프롬프트에 삽입
+    research_section = f"""
+
+## 🔍 주제 리서치 결과 (팩트 참고용 - 이 내용을 자연스럽게 녹여서 작성)
+아래는 '{topic}' 주제에 대한 리서치 결과입니다. 이 정보를 참고하되, 당신의 문체와 경험담으로 자연스럽게 풀어서 작성하세요.
+리서치 내용을 그대로 나열하지 말고, 변리사로서 직접 경험한 것처럼 소화하여 표현하세요.
+
+{research_result}
+"""
+    # 프롬프트의 주제 섹션 앞에 리서치 결과 삽입
+    prompt_text = prompt_text.replace(
+        f"## 🎯 작성해야 할 새로운 칼럼 주제\n{topic}",
+        f"{research_section}\n## 🎯 작성해야 할 새로운 칼럼 주제\n{topic}"
+    )
 
     message = client.messages.create(
         model=model_id,
@@ -362,10 +421,28 @@ def generate_column(persona_id, persona_name, topic, model_id="claude-sonnet-4-6
 
 
 def generate_column_stream(persona_id, persona_name, topic, model_id="claude-sonnet-4-6", temperature=0.7):
-    """컬럼 생성 (스트리밍) - 제너레이터 반환"""
+    """컬럼 생성 (스트리밍) - 2단계: 리서치 → 글쓰기"""
     client = _get_client()
+
+    # Step 1: 주제 리서치 (스트리밍 전 동기 실행)
+    research_result = research_topic(topic, model_id)
+
+    # Step 2: 리서치 결과 + 과거 글 DB로 칼럼 생성
     context_text = get_retriever_context(persona_id, topic)
     prompt_text = _build_prompt_text(persona_id, persona_name, topic, context_text)
+
+    research_section = f"""
+
+## 🔍 주제 리서치 결과 (팩트 참고용 - 이 내용을 자연스럽게 녹여서 작성)
+아래는 '{topic}' 주제에 대한 리서치 결과입니다. 이 정보를 참고하되, 당신의 문체와 경험담으로 자연스럽게 풀어서 작성하세요.
+리서치 내용을 그대로 나열하지 말고, 변리사로서 직접 경험한 것처럼 소화하여 표현하세요.
+
+{research_result}
+"""
+    prompt_text = prompt_text.replace(
+        f"## 🎯 작성해야 할 새로운 칼럼 주제\n{topic}",
+        f"{research_section}\n## 🎯 작성해야 할 새로운 칼럼 주제\n{topic}"
+    )
 
     with client.messages.stream(
         model=model_id,
