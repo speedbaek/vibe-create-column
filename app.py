@@ -867,8 +867,8 @@ with tab2:
                         count=schedule_count,
                     )
                     st.session_state.smart_schedule = schedule
-                    st.session_state.schedule_blog = schedule_blog
-                    st.session_state.schedule_date = schedule_date.strftime("%Y-%m-%d")
+                    st.session_state._sched_blog_key = schedule_blog
+                    st.session_state._sched_date = schedule_date.strftime("%Y-%m-%d")
                 except Exception as e:
                     st.error(f"키워드 선정 실패: {e}")
 
@@ -900,7 +900,7 @@ with tab2:
             elif not SCHEDULER_LOADED:
                 st.error("스케줄러 모듈이 로드되지 않았습니다.")
             else:
-                blog_key = st.session_state.get("schedule_blog", schedule_blog)
+                blog_key = st.session_state.get("_sched_blog_key", schedule_blog)
                 blog_conf = BLOG_CONFIG.get(blog_key, {})
                 persona_id = blog_conf.get("default_persona", blog_key)
                 # persona_name은 persona json에서 가져오기
@@ -930,7 +930,7 @@ with tab2:
                         st.error(f"예약 실패 ({item['keyword']}): {e}")
 
                 if registered > 0:
-                    st.success(f"✅ {registered}건 예약 등록 완료! ({st.session_state.get('schedule_date', '')})")
+                    st.success(f"✅ {registered}건 예약 등록 완료! ({st.session_state.get('_sched_date', '')})")
                     st.session_state.smart_schedule = None
                     st.rerun()
 
