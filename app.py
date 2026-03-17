@@ -839,8 +839,8 @@ with tab2:
         with col_b:
             schedule_blog = st.selectbox(
                 "블로그 선택",
-                options=list(blogs_config.keys()) if blogs_config else ["yun_ung_chae"],
-                format_func=lambda x: blogs_config.get(x, {}).get("name", x) if blogs_config else x,
+                options=list(BLOG_CONFIG.keys()) if BLOG_CONFIG else ["yun_ung_chae"],
+                format_func=lambda x: BLOG_CONFIG.get(x, {}).get("display_name", x) if BLOG_CONFIG else x,
                 key="schedule_blog",
             )
         with col_c:
@@ -858,8 +858,8 @@ with tab2:
             with st.spinner("키워드 선정 + 시간 분배 중..."):
                 try:
                     # 블로그 키에서 persona_id 추출
-                    blog_conf = blogs_config.get(schedule_blog, {})
-                    persona_id = blog_conf.get("persona_id", schedule_blog)
+                    blog_conf = BLOG_CONFIG.get(schedule_blog, {})
+                    persona_id = blog_conf.get("default_persona", schedule_blog)
 
                     schedule = build_schedule(
                         date_str=schedule_date.strftime("%Y-%m-%d"),
@@ -901,9 +901,14 @@ with tab2:
                 st.error("스케줄러 모듈이 로드되지 않았습니다.")
             else:
                 blog_key = st.session_state.get("schedule_blog", schedule_blog)
-                blog_conf = blogs_config.get(blog_key, {})
-                persona_id = blog_conf.get("persona_id", blog_key)
-                persona_name = blog_conf.get("persona_name", "")
+                blog_conf = BLOG_CONFIG.get(blog_key, {})
+                persona_id = blog_conf.get("default_persona", blog_key)
+                # persona_name은 persona json에서 가져오기
+                try:
+                    with open(f"config/personas/{persona_id}.json", "r", encoding="utf-8") as _pf:
+                        persona_name = json.load(_pf).get("name", "")
+                except Exception:
+                    persona_name = ""
                 blog_id = blog_conf.get("blog_id", "")
 
                 registered = 0
