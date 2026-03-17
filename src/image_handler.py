@@ -26,9 +26,13 @@ FONTS = {
     "PretendardBold": "https://github.com/orioncactus/pretendard/raw/main/packages/pretendard/dist/public/static/Pretendard-Bold.otf",
 }
 
-# 가로형 배너 이미지 크기 (3.4:1 비율)
+# 가로형 배너 이미지 크기 - 윤변리사 (손글씨 스타일)
 IMG_WIDTH = 680
 IMG_HEIGHT = 200
+
+# 공식블로그 모던 이미지 크기 (2.5:1 비율, 세로 여유)
+MODERN_WIDTH = 680
+MODERN_HEIGHT = 270
 
 
 def ensure_fonts():
@@ -415,20 +419,24 @@ def _style_center_box(text, output_path, theme_index=0):
 _STYLES = [_style_gradient_card, _style_split_card, _style_center_box]
 
 
-# ── 토스 스타일 테마 (모던/세련된 파스텔 컬러) ─────────────
-_TOSS_THEMES = [
-    {"bg": (248, 249, 253), "accent": (51, 102, 255), "text": "#191F28",
-     "sub": "#8B95A1", "pill_bg": (232, 240, 254), "name": "toss_blue"},
-    {"bg": (245, 248, 245), "accent": (60, 180, 110), "text": "#191F28",
-     "sub": "#8B95A1", "pill_bg": (230, 245, 235), "name": "toss_green"},
-    {"bg": (253, 247, 244), "accent": (255, 100, 50), "text": "#191F28",
-     "sub": "#8B95A1", "pill_bg": (254, 237, 230), "name": "toss_coral"},
-    {"bg": (247, 245, 253), "accent": (120, 80, 220), "text": "#191F28",
-     "sub": "#8B95A1", "pill_bg": (237, 230, 254), "name": "toss_purple"},
-    {"bg": (255, 255, 255), "accent": (51, 102, 255), "text": "#191F28",
-     "sub": "#8B95A1", "pill_bg": (245, 246, 248), "name": "toss_white"},
-    {"bg": (30, 33, 40), "accent": (51, 145, 255), "text": "#FFFFFF",
-     "sub": "#8B95A1", "pill_bg": (45, 50, 60), "name": "toss_dark"},
+# ── 테헤란 공식 블로그 스타일 (토스/뱅크샐러드 감성 블루 카드) ─────────────
+# 참고: 굵은 타이포, 블루 단색/그라디언트 배경, 3D 기하학 장식, 미니멀 레이아웃
+_MODERN_THEMES = [
+    # 딥 블루 그라디언트 (진한 파랑→중간 파랑)
+    {"grad_start": (25, 60, 200), "grad_end": (50, 100, 240),
+     "text": "#FFFFFF", "deco": (80, 140, 255), "name": "deep_blue"},
+    # 로열 블루 (균일 톤)
+    {"grad_start": (40, 80, 220), "grad_end": (30, 70, 200),
+     "text": "#FFFFFF", "deco": (100, 160, 255), "name": "royal_blue"},
+    # 라이트 블루 (밝은 배경 + 진한 텍스트)
+    {"grad_start": (225, 235, 250), "grad_end": (205, 220, 245),
+     "text": "#1A3A6B", "deco": (80, 130, 220), "name": "light_blue"},
+    # 다크 네이비
+    {"grad_start": (15, 25, 55), "grad_end": (25, 40, 80),
+     "text": "#FFFFFF", "deco": (50, 120, 255), "name": "dark_navy"},
+    # 스카이 그라디언트 (위: 흰색 → 아래: 연파랑)
+    {"grad_start": (240, 245, 255), "grad_end": (190, 210, 245),
+     "text": "#1A3060", "deco": (70, 120, 210), "name": "sky_gradient"},
 ]
 
 
@@ -438,185 +446,318 @@ def _hex_to_rgb(hex_color):
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
 
-def _draw_rounded_rect(draw, xy, radius, fill=None, outline=None, width=1):
-    """라운드 사각형 그리기"""
-    x1, y1, x2, y2 = xy
-    # PIL의 rounded_rectangle (Pillow 8.2+)
-    try:
-        draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=width)
-    except AttributeError:
-        # fallback: 일반 사각형
-        draw.rectangle(xy, fill=fill, outline=outline, width=width)
-
-
-def _style_toss_clean(text, output_path, theme_index=0):
-    """토스 스타일 1: 클린 미니멀 카드 (배경색 + 중앙 텍스트 + 좌측 액센트 라인)"""
-    from PIL import Image, ImageDraw
-
-    theme = _TOSS_THEMES[theme_index % len(_TOSS_THEMES)]
-    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), theme["bg"])
-    draw = ImageDraw.Draw(img)
-
-    # 좌측 액센트 바 (4px, 라운드)
-    bar_x = 40
-    draw.rectangle([bar_x, 50, bar_x + 4, IMG_HEIGHT - 50], fill=theme["accent"])
-
-    # 하단 미세 라인
-    draw.line([(60, IMG_HEIGHT - 35), (IMG_WIDTH - 60, IMG_HEIGHT - 35)],
-              fill=(*_hex_to_rgb(theme["sub"]), 40) if isinstance(theme["sub"], str) else theme["sub"],
-              width=1)
-
-    # 텍스트
-    font_name = "Pretendard"
-    font, lines, fsize = _adjust_font_size(
-        text, font_name, IMG_WIDTH - 140, IMG_HEIGHT - 80, draw,
-        size_range=[44, 40, 36, 32, 28, 24]
+def _draw_3d_half_circle(draw, cx, cy, radius, color, alpha_draw=None):
+    """3D 느낌의 반원/원형 장식 (그라디언트 효과)"""
+    # 메인 원
+    r, g, b = color
+    draw.ellipse(
+        [cx - radius, cy - radius, cx + radius, cy + radius],
+        fill=(r, g, b)
+    )
+    # 하이라이트 (밝은 부분 - 3D 느낌)
+    highlight_r = int(radius * 0.7)
+    hr = min(255, r + 50)
+    hg = min(255, g + 50)
+    hb = min(255, b + 50)
+    draw.ellipse(
+        [cx - highlight_r, cy - highlight_r - int(radius * 0.15),
+         cx + int(highlight_r * 0.6), cy + int(highlight_r * 0.6)],
+        fill=(hr, hg, hb)
     )
 
-    text_color = theme["text"]
-    total_h = sum(draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1] for line in lines)
-    total_h += (len(lines) - 1) * 12
 
-    y = (IMG_HEIGHT - total_h) // 2
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        h = bbox[3] - bbox[1]
-        x = 70  # 좌측 정렬 (토스 스타일)
-        draw.text((x, y), line, fill=text_color, font=font)
-        y += h + 12
-
-    img.save(output_path, 'PNG', quality=95)
-    return output_path
+def _draw_diagonal_stripe(draw, width, height, color, stripe_width=60, gap=80):
+    """대각선 스트라이프 장식 (레퍼런스 이미지 3번 스타일)"""
+    r, g, b = color
+    for offset in range(-height, width + height, gap):
+        points = [
+            (offset, 0),
+            (offset + stripe_width, 0),
+            (offset + stripe_width - height, height),
+            (offset - height, height),
+        ]
+        draw.polygon(points, fill=(r, g, b))
 
 
-def _style_toss_pill(text, output_path, theme_index=0):
-    """토스 스타일 2: 필 카드 (라운드 배경 + 아이콘 느낌의 장식)"""
+def _draw_folded_shape(draw, x, y, size, color):
+    """접힌 종이 느낌의 기하학 장식 (레퍼런스 이미지 1번 스타일)"""
+    r, g, b = color
+    # 왼쪽 반 (어두운)
+    draw.polygon([
+        (x, y - size),
+        (x, y + size),
+        (x - int(size * 0.8), y)
+    ], fill=(max(0, r - 30), max(0, g - 30), max(0, b - 30)))
+    # 오른쪽 반 (밝은)
+    draw.polygon([
+        (x, y - size),
+        (x, y + size),
+        (x + int(size * 0.8), y)
+    ], fill=(min(255, r + 20), min(255, g + 20), min(255, b + 20)))
+
+
+def _style_bold_blue(text, output_path, theme_index=0):
+    """모던 스타일 1: 볼드 블루 그라디언트 + 대형 백색 타이포 + 대각선 스트라이프"""
     from PIL import Image, ImageDraw
+    W, H = MODERN_WIDTH, MODERN_HEIGHT
+    BRAND_H = 30  # 하단 브랜딩 영역 높이
 
-    theme = _TOSS_THEMES[theme_index % len(_TOSS_THEMES)]
-    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), (255, 255, 255))
+    theme = _MODERN_THEMES[theme_index % len(_MODERN_THEMES)]
+    img = Image.new('RGB', (W, H), theme["grad_start"])
     draw = ImageDraw.Draw(img)
 
-    # 중앙에 라운드 배경 카드
-    card_margin_x = 30
-    card_margin_y = 20
-    _draw_rounded_rect(draw,
-        [card_margin_x, card_margin_y, IMG_WIDTH - card_margin_x, IMG_HEIGHT - card_margin_y],
-        radius=20, fill=theme["bg"])
+    _draw_gradient(draw, W, H, theme["grad_start"], theme["grad_end"])
 
-    # 상단 좌측에 작은 pill 배지 (액센트 색)
-    pill_text = "KEY POINT"
-    pill_font = _get_font("Pretendard", 14)
-    pill_bbox = draw.textbbox((0, 0), pill_text, font=pill_font)
-    pill_w = pill_bbox[2] - pill_bbox[0] + 20
-    pill_h = pill_bbox[3] - pill_bbox[1] + 10
-    pill_x = 55
-    pill_y = 38
-    _draw_rounded_rect(draw,
-        [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
-        radius=pill_h // 2, fill=theme["accent"])
-    draw.text((pill_x + 10, pill_y + 3), pill_text, fill="#FFFFFF", font=pill_font)
-
-    # 메인 텍스트 (pill 아래)
-    font_name = "PretendardBold"
-    font, lines, fsize = _adjust_font_size(
-        text, font_name, IMG_WIDTH - 140, IMG_HEIGHT - 100, draw,
-        size_range=[40, 36, 32, 28, 24, 20]
-    )
-
-    text_color = theme["text"]
-    total_h = sum(draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1] for line in lines)
-    total_h += (len(lines) - 1) * 10
-
-    y = pill_y + pill_h + 20
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        h = bbox[3] - bbox[1]
-        x = 55
-        draw.text((x, y), line, fill=text_color, font=font)
-        y += h + 10
-
-    # 우측 하단에 작은 도트 장식
-    dot_colors = [theme["accent"], (*theme["accent"][:2], min(255, theme["accent"][2] + 60))]
-    for i, dc in enumerate(dot_colors):
-        cx = IMG_WIDTH - 70 - i * 18
-        cy = IMG_HEIGHT - 50
-        draw.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=dc)
-
-    img.save(output_path, 'PNG', quality=95)
-    return output_path
-
-
-def _style_toss_gradient_soft(text, output_path, theme_index=0):
-    """토스 스타일 3: 소프트 그라데이션 + 중앙 정렬 텍스트"""
-    from PIL import Image, ImageDraw
-
-    theme = _TOSS_THEMES[theme_index % len(_TOSS_THEMES)]
-    img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), theme["bg"])
-    draw = ImageDraw.Draw(img)
-
-    # 소프트 그라데이션 (액센트 색 → 배경색, 하단에서 상단으로)
-    accent = theme["accent"]
-    bg = theme["bg"]
-    for y_pos in range(IMG_HEIGHT):
-        ratio = y_pos / IMG_HEIGHT
-        # 하단 20%에서만 액센트가 살짝 보이도록
-        blend = max(0, (ratio - 0.7) / 0.3) * 0.08
-        r = int(bg[0] * (1 - blend) + accent[0] * blend)
-        g = int(bg[1] * (1 - blend) + accent[1] * blend)
-        b = int(bg[2] * (1 - blend) + accent[2] * blend)
-        draw.line([(0, y_pos), (IMG_WIDTH, y_pos)], fill=(r, g, b))
-
-    # 상단 우측에 큰 반투명 원 (장식)
-    overlay = Image.new('RGBA', (IMG_WIDTH, IMG_HEIGHT), (0, 0, 0, 0))
+    # 우측에 대각선 스트라이프 장식
+    overlay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
-    circle_r = 120
-    cx, cy = IMG_WIDTH - 80, -30
-    od.ellipse([cx - circle_r, cy - circle_r, cx + circle_r, cy + circle_r],
-               fill=(*accent, 15))
-    circle_r2 = 60
-    cx2, cy2 = 50, IMG_HEIGHT + 10
-    od.ellipse([cx2 - circle_r2, cy2 - circle_r2, cx2 + circle_r2, cy2 + circle_r2],
-               fill=(*accent, 12))
+    dr, dg, db = theme["deco"]
+    stripe_start = int(W * 0.55)
+    for offset in range(-H, W, 50):
+        points = [
+            (stripe_start + offset, 0),
+            (stripe_start + offset + 30, 0),
+            (stripe_start + offset + 30 - H, H),
+            (stripe_start + offset - H, H),
+        ]
+        od.polygon(points, fill=(dr, dg, db, 25))
+
     img_rgba = img.convert('RGBA')
     img_rgba = Image.alpha_composite(img_rgba, overlay)
     img = img_rgba.convert('RGB')
     draw = ImageDraw.Draw(img)
 
-    # 중앙 텍스트
-    font_name = "PretendardBold"
+    # 볼드 텍스트 (크게, 좌측 정렬)
     font, lines, fsize = _adjust_font_size(
-        text, font_name, IMG_WIDTH - 120, IMG_HEIGHT - 60, draw,
-        size_range=[44, 40, 36, 32, 28, 24]
+        text, "PretendardBold", W - 100, H - BRAND_H - 40, draw,
+        size_range=[56, 52, 48, 44, 40, 36, 32]
     )
 
     text_color = theme["text"]
-    total_h = sum(draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1] for line in lines)
-    total_h += (len(lines) - 1) * 12
-
-    y = (IMG_HEIGHT - total_h) // 2
+    total_h = 0
+    line_heights = []
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=font)
-        w = bbox[2] - bbox[0]
         h = bbox[3] - bbox[1]
-        x = (IMG_WIDTH - w) // 2
-        draw.text((x, y), line, fill=text_color, font=font)
-        y += h + 12
+        line_heights.append(h)
+        total_h += h
+    total_h += (len(lines) - 1) * 8
 
-    # 하단 중앙 액센트 언더라인
-    line_w = min(len(text) * 10, 200)
-    draw.rectangle(
-        [(IMG_WIDTH - line_w) // 2, IMG_HEIGHT - 25,
-         (IMG_WIDTH + line_w) // 2, IMG_HEIGHT - 22],
-        fill=theme["accent"]
-    )
+    # 브랜딩 영역 제외하고 정중앙 배치
+    y = (H - BRAND_H - total_h) // 2
+    for i, line in enumerate(lines):
+        x = 50
+        draw.text((x, y), line, fill=text_color, font=font)
+        y += line_heights[i] + 8
+
+    # 좌하단 브랜딩
+    brand_font = _get_font("Pretendard", 12)
+    draw.text((50, H - 22), "특허법인 테헤란", fill=text_color, font=brand_font)
 
     img.save(output_path, 'PNG', quality=95)
     return output_path
 
 
-# 토스 스타일 함수 목록 (테헤란 공식 블로그)
-_TOSS_STYLES = [_style_toss_clean, _style_toss_pill, _style_toss_gradient_soft]
+def _style_dark_3d(text, output_path, theme_index=0):
+    """모던 스타일 2: 다크 배경 + 3D 기하학 장식 + 굵은 백색 텍스트"""
+    from PIL import Image, ImageDraw
+    W, H = MODERN_WIDTH, MODERN_HEIGHT
+    BRAND_H = 30
+
+    dark_themes = [t for t in _MODERN_THEMES if "dark" in t["name"] or "deep" in t["name"]]
+    theme = dark_themes[theme_index % len(dark_themes)] if dark_themes else _MODERN_THEMES[0]
+
+    img = Image.new('RGB', (W, H), theme["grad_start"])
+    draw = ImageDraw.Draw(img)
+    _draw_gradient(draw, W, H, theme["grad_start"], theme["grad_end"])
+
+    # 3D 접힌 도형 장식 (상단 영역)
+    deco_color = theme["deco"]
+    cx = W // 2
+    cy = int(H * 0.3)
+    shape_size = random.randint(50, 70)
+
+    overlay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+
+    r1 = shape_size
+    od.pieslice(
+        [cx - r1, cy - r1, cx + r1, cy + r1],
+        start=180, end=360,
+        fill=(*deco_color, 180)
+    )
+    r2 = int(shape_size * 0.6)
+    lighter = tuple(min(255, c + 40) for c in deco_color)
+    od.pieslice(
+        [cx - r2 + 15, cy - r2, cx + r2 + 15, cy + r2],
+        start=0, end=180,
+        fill=(*lighter, 200)
+    )
+
+    img_rgba = img.convert('RGBA')
+    img_rgba = Image.alpha_composite(img_rgba, overlay)
+    img = img_rgba.convert('RGB')
+    draw = ImageDraw.Draw(img)
+
+    # 텍스트 (정중앙, 브랜딩 영역 제외)
+    font, lines, fsize = _adjust_font_size(
+        text, "PretendardBold", W - 120, H - BRAND_H - 40, draw,
+        size_range=[52, 48, 44, 40, 36, 32, 28]
+    )
+
+    total_h = 0
+    line_heights = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        h = bbox[3] - bbox[1]
+        line_heights.append(h)
+        total_h += h
+    total_h += (len(lines) - 1) * 8
+
+    y = (H - BRAND_H - total_h) // 2
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        w = bbox[2] - bbox[0]
+        x = (W - w) // 2
+        draw.text((x, y), line, fill="#FFFFFF", font=font)
+        y += line_heights[i] + 8
+
+    brand_font = _get_font("Pretendard", 12)
+    draw.text((45, H - 22), "특허법인 테헤란", fill="#FFFFFF", font=brand_font)
+
+    img.save(output_path, 'PNG', quality=95)
+    return output_path
+
+
+def _style_corporate_light(text, output_path, theme_index=0):
+    """모던 스타일 3: 라이트 블루 배경 + 진한 블루 텍스트 + 원형 글로우"""
+    from PIL import Image, ImageDraw
+    W, H = MODERN_WIDTH, MODERN_HEIGHT
+    BRAND_H = 30
+
+    light_themes = [t for t in _MODERN_THEMES if "light" in t["name"] or "sky" in t["name"]]
+    theme = light_themes[theme_index % len(light_themes)] if light_themes else _MODERN_THEMES[2]
+
+    img = Image.new('RGB', (W, H), theme["grad_start"])
+    draw = ImageDraw.Draw(img)
+    _draw_gradient(draw, W, H, theme["grad_start"], theme["grad_end"])
+
+    # 배경에 큰 원형 글로우
+    overlay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+
+    glow_r = 200
+    glow_cx = W // 2
+    glow_cy = -50
+    for i in range(glow_r, 0, -3):
+        alpha = max(2, int(15 * (i / glow_r)))
+        dr, dg, db = theme["deco"]
+        od.ellipse(
+            [glow_cx - i, glow_cy - i, glow_cx + i, glow_cy + i],
+            fill=(dr, dg, db, alpha)
+        )
+
+    img_rgba = img.convert('RGBA')
+    img_rgba = Image.alpha_composite(img_rgba, overlay)
+    img = img_rgba.convert('RGB')
+    draw = ImageDraw.Draw(img)
+
+    # 텍스트 (정중앙, 브랜딩 영역 제외)
+    font, lines, fsize = _adjust_font_size(
+        text, "PretendardBold", W - 100, H - BRAND_H - 40, draw,
+        size_range=[52, 48, 44, 40, 36, 32, 28]
+    )
+
+    text_color = theme["text"]
+    total_h = 0
+    line_heights = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        h = bbox[3] - bbox[1]
+        line_heights.append(h)
+        total_h += h
+    total_h += (len(lines) - 1) * 10
+
+    y = (H - BRAND_H - total_h) // 2
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        w = bbox[2] - bbox[0]
+        x = (W - w) // 2
+        draw.text((x, y), line, fill=text_color, font=font)
+        y += line_heights[i] + 10
+
+    brand_font = _get_font("Pretendard", 12)
+    brand_color = theme["text"] if isinstance(theme["text"], str) else "#333333"
+    draw.text((45, H - 22), "특허법인 테헤란", fill=brand_color, font=brand_font)
+
+    img.save(output_path, 'PNG', quality=95)
+    return output_path
+
+
+def _style_gradient_bar(text, output_path, theme_index=0):
+    """모던 스타일 4: 블루 그라디언트 + 좌측 굵은 텍스트 + 우측 반원 장식"""
+    from PIL import Image, ImageDraw
+    W, H = MODERN_WIDTH, MODERN_HEIGHT
+    BRAND_H = 30
+
+    theme = _MODERN_THEMES[theme_index % len(_MODERN_THEMES)]
+    img = Image.new('RGB', (W, H), theme["grad_start"])
+    draw = ImageDraw.Draw(img)
+    _draw_gradient(draw, W, H, theme["grad_start"], theme["grad_end"], direction="horizontal")
+
+    # 우측에 큰 반원 장식
+    overlay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    circle_r = H
+    cx = W + int(circle_r * 0.3)
+    cy = H // 2
+    dr, dg, db = theme["deco"]
+    od.ellipse(
+        [cx - circle_r, cy - circle_r, cx + circle_r, cy + circle_r],
+        fill=(dr, dg, db, 40)
+    )
+    r2 = int(circle_r * 0.4)
+    od.ellipse(
+        [cx - circle_r - r2, cy - r2 + 20, cx - circle_r + r2, cy + r2 + 20],
+        fill=(dr, dg, db, 60)
+    )
+
+    img_rgba = img.convert('RGBA')
+    img_rgba = Image.alpha_composite(img_rgba, overlay)
+    img = img_rgba.convert('RGB')
+    draw = ImageDraw.Draw(img)
+
+    # 좌측 굵은 텍스트 (정중앙, 브랜딩 영역 제외)
+    font, lines, fsize = _adjust_font_size(
+        text, "PretendardBold", int(W * 0.65), H - BRAND_H - 40, draw,
+        size_range=[52, 48, 44, 40, 36, 32]
+    )
+
+    text_color = theme["text"]
+    total_h = 0
+    line_heights = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        h = bbox[3] - bbox[1]
+        line_heights.append(h)
+        total_h += h
+    total_h += (len(lines) - 1) * 8
+
+    y = (H - BRAND_H - total_h) // 2
+    for i, line in enumerate(lines):
+        x = 45
+        draw.text((x, y), line, fill=text_color, font=font)
+        y += line_heights[i] + 8
+
+    brand_font = _get_font("Pretendard", 12)
+    draw.text((45, H - 22), "특허법인 테헤란", fill=text_color, font=brand_font)
+
+    img.save(output_path, 'PNG', quality=95)
+    return output_path
+
+
+# 모던 스타일 함수 목록 (테헤란 공식 블로그)
+_MODERN_STYLES = [_style_bold_blue, _style_dark_3d, _style_corporate_light, _style_gradient_bar]
 
 
 def generate_handwriting_image(text, output_path, style_index=None):
@@ -634,44 +775,51 @@ def generate_handwriting_image(text, output_path, style_index=None):
 
 def generate_modern_image(text, output_path, style_index=None):
     """
-    소제목 텍스트를 토스 스타일 모던 카드 이미지로 생성 (680x200)
+    소제목 텍스트를 모던 블루 카드 이미지로 생성 (680x270)
+    토스/뱅크샐러드 감성: 굵은 타이포 + 블루 계열 + 3D 기하학 장식
     """
     if style_index is None:
-        style_idx = random.randint(0, len(_TOSS_STYLES) - 1)
+        style_idx = random.randint(0, len(_MODERN_STYLES) - 1)
     else:
-        style_idx = style_index % len(_TOSS_STYLES)
+        style_idx = style_index % len(_MODERN_STYLES)
 
-    theme_idx = (style_index or 0) % len(_TOSS_THEMES)
-    return _TOSS_STYLES[style_idx](text, output_path, theme_index=theme_idx)
+    theme_idx = (style_index or 0) % len(_MODERN_THEMES)
+    return _MODERN_STYLES[style_idx](text, output_path, theme_index=theme_idx)
 
 
-def generate_blog_images(topic, content="", image_count=4, user_image_paths=None, persona_id=None):
+def generate_blog_images(topic, content="", image_count=None, user_image_paths=None, persona_id=None):
     """
     블로그 본문 이미지 생성 (PIL 가로형 배너 이미지)
 
     소제목을 추출하여 가로형 배너 텍스트 이미지를 생성합니다.
-    680x200 가로형 크기로 자연스러운 블로그 구분선 역할.
+    image_count=None이면 소제목 개수에 맞춰 자동 결정.
     """
     body_images = []
 
+    # 먼저 소제목 추출 → 이미지 개수 자동 결정
+    subtitles = _extract_subtitles(content)
+
+    # image_count가 None이면 소제목 수에 맞춤, 지정 시 해당 값 사용
+    actual_count = len(subtitles) if (image_count is None and subtitles) else (image_count or 4)
+
     if user_image_paths:
-        for path in user_image_paths[:image_count]:
+        for path in user_image_paths[:actual_count]:
             body_images.append({
                 "url": path,
                 "alt": f"{topic} 관련 이미지",
                 "source": "user_upload",
             })
 
-    remaining = image_count - len(body_images)
+    remaining = actual_count - len(body_images)
     if remaining <= 0:
         return {"body_images": body_images, "total_count": len(body_images)}
 
-    subtitles = _extract_subtitles(content)
     if not subtitles:
-        # 소제목이 없으면 본문에서 핵심 문장 추출 (키워드 반복 방지)
         subtitles = _extract_key_sentences(content, topic, remaining)
     if not subtitles:
         subtitles = [topic]
+
+    logger.info(f"이미지 생성: 소제목 {len(subtitles)}개 → 이미지 {actual_count}장")
 
     output_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

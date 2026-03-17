@@ -52,7 +52,7 @@ def _next_id():
 
 def add_job(topic, persona_id, persona_name, blog_key,
             model_id="claude-sonnet-4-6", temperature=0.7,
-            include_images=True, image_count=4,
+            include_images=True, image_count=None,
             category_no=None, scheduled_time=None,
             override_title=None):
     """
@@ -159,7 +159,7 @@ def clear_all():
 def create_interval_schedule(topics, persona_id, persona_name, blog_key,
                              start_time, interval_minutes,
                              model_id="claude-sonnet-4-6", temperature=0.7,
-                             include_images=True, image_count=4):
+                             include_images=True, image_count=None):
     """간격 발행 스케줄 생성"""
     created_jobs = []
     for idx, topic in enumerate(topics):
@@ -203,7 +203,7 @@ def execute_job(job, progress_callback=None):
                 model_id=job.get("model_id", "claude-sonnet-4-6"),
                 temperature=job.get("temperature", 0.7),
                 include_images=job.get("include_images", True),
-                image_count=job.get("image_count", 4),
+                image_count=job.get("image_count"),  # None이면 소제목 수에 맞춤
                 blog_id=blog_id,
                 category_no=job.get("category_no"),
                 override_title=job.get("override_title"),

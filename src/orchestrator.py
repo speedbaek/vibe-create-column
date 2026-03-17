@@ -16,7 +16,7 @@ from src.formatter import format_column_html, format_column_preview
 def generate_preview(topic, persona_id, persona_name,
                      model_id="claude-sonnet-4-6", temperature=0.7,
                      include_images=False, user_image_paths=None,
-                     image_count=4, thumbnail_preset=None,
+                     image_count=None, thumbnail_preset=None,
                      auto_title=True, title_count=3):
     """
     키워드로 칼럼 생성 + 유사도 검증 + HTML 포맷팅
@@ -85,7 +85,7 @@ def generate_preview(topic, persona_id, persona_name,
             image_data = generate_blog_images(
                 topic=topic,
                 content=content,
-                image_count=image_count or 4,
+                image_count=image_count,  # None이면 소제목 수에 맞춰 자동 결정
                 user_image_paths=user_image_paths,
                 persona_id=persona_id,
             )
@@ -126,7 +126,7 @@ def generate_preview(topic, persona_id, persona_name,
 
 def batch_generate(items, persona_id, persona_name,
                    model_id="claude-sonnet-4-6", temperature=0.7,
-                   include_images=False, image_count=4,
+                   include_images=False, image_count=None,
                    thumbnail_preset=None, progress_callback=None):
     """
     배치 칼럼 생성

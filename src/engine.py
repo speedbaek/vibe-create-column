@@ -125,8 +125,6 @@ def load_persona_rules(persona_id):
         # CTA 설정
         cta = data.get('cta_config', {})
         if cta:
-            mid_options = cta.get('mid_text_options', [])
-            end_options = cta.get('end_text_options', [])
             links = cta.get('links', {})
 
             rules_parts.append("## CTA (공지글 유도) 규칙")
@@ -140,12 +138,29 @@ def load_persona_rules(persona_id):
                     short_title = link_info.get('short_title', '')
                     rules_parts.append(f"  - {marker} → {short_title}")
 
-            if mid_options:
-                mid = random.choice(mid_options)
-                rules_parts.append(f"- 글 중간에 아래 유도 문구를 자연스럽게 삽입하세요 (링크 마커 포함):\n\"{mid}\"")
-            if end_options:
-                end = random.choice(end_options)
-                rules_parts.append(f"- 글 끝부분에 아래 안내 문구를 삽입하세요 (링크 마커 포함):\n\"{end}\"")
+            # cta_pairs 방식: core 1개 + consult 1개 밸런스 보장
+            cta_pairs = cta.get('cta_pairs', [])
+            if cta_pairs:
+                core_options = [p for p in cta_pairs if p.get('role') == 'core']
+                consult_options = [p for p in cta_pairs if p.get('role') == 'consult']
+
+                mid_cta = random.choice(core_options)['text'] if core_options else None
+                end_cta = random.choice(consult_options)['text'] if consult_options else None
+
+                if mid_cta:
+                    rules_parts.append(f"- 글 중간에 아래 핵심 컨텐츠 유도 문구를 자연스럽게 삽입하세요 (링크 마커 포함):\n\"{mid_cta}\"")
+                if end_cta:
+                    rules_parts.append(f"- 글 끝부분에 아래 상담 유도 문구를 삽입하세요 (링크 마커 포함):\n\"{end_cta}\"")
+            else:
+                # 레거시: mid_text_options / end_text_options 방식 (하위 호환)
+                mid_options = cta.get('mid_text_options', [])
+                end_options = cta.get('end_text_options', [])
+                if mid_options:
+                    mid = random.choice(mid_options)
+                    rules_parts.append(f"- 글 중간에 아래 유도 문구를 자연스럽게 삽입하세요 (링크 마커 포함):\n\"{mid}\"")
+                if end_options:
+                    end = random.choice(end_options)
+                    rules_parts.append(f"- 글 끝부분에 아래 안내 문구를 삽입하세요 (링크 마커 포함):\n\"{end}\"")
 
         # 어휘 선호도
         vocab = data.get('vocabulary_preferences', {})
@@ -190,19 +205,17 @@ def replace_link_markers(text, persona_id):
     if not links:
         return text
 
-    # 마커 → 링크 블록 치환
+    # 마커 → 링크 URL 치환 (oglink 컴포넌트가 KNOWN_LINKS에서 제목/설명 자동 표시)
     for link_key, link_info in links.items():
         marker = link_info.get('marker', '')
         if not marker or marker not in text:
             continue
 
-        title = link_info.get('title', '')
         url = link_info.get('url', '')
 
-        # 네이버 블로그 링크 텍스트 블록 생성
-        link_block = f"<{link_info.get('short_title', title)}>\n{title}\n{url}"
-
-        text = text.replace(marker, link_block)
+        # URL만 단독 줄로 출력 → se_converter에서 oglink 카드로 자동 변환
+        # (KNOWN_LINKS에 등록된 제목/설명/썸네일이 자동 적용됨)
+        text = text.replace(marker, f"\n{url}\n")
 
     return text
 
@@ -296,10 +309,22 @@ def _build_prompt_text(persona_id, persona_name, topic, context_text):
     anti_ai = load_anti_ai_rules()
     persona_rules = load_persona_rules(persona_id)
 
+    # 페르소나 intro 로드
+    persona_intro = ""
+    json_path = os.path.join(PERSONAS_DIR, f"{persona_id}.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                pdata = json.load(f)
+            persona_intro = pdata.get("intro", "")
+        except Exception:
+            pass
+
     # 변수 치환
     prompt_text = base.replace("{human_style_rules}", human_rules)
     prompt_text = prompt_text.replace("{anti_ai_rules}", anti_ai)
     prompt_text = prompt_text.replace("{persona_name}", persona_name)
+    prompt_text = prompt_text.replace("{persona_intro}", persona_intro)
     prompt_text = prompt_text.replace("{persona_rules}", persona_rules)
     prompt_text = prompt_text.replace("{context}", context_text)
     prompt_text = prompt_text.replace("{topic}", topic)
@@ -315,7 +340,7 @@ def generate_column(persona_id, persona_name, topic, model_id="claude-sonnet-4-6
 
     message = client.messages.create(
         model=model_id,
-        max_tokens=4096,
+        max_tokens=6000,
         temperature=temperature,
         messages=[
             {"role": "user", "content": prompt_text}
@@ -333,7 +358,7 @@ def generate_column_stream(persona_id, persona_name, topic, model_id="claude-son
 
     with client.messages.stream(
         model=model_id,
-        max_tokens=4096,
+        max_tokens=6000,
         temperature=temperature,
         messages=[
             {"role": "user", "content": prompt_text}

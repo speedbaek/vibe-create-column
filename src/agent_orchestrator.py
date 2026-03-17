@@ -110,6 +110,7 @@ def run_content_agent(
             "quality_metrics": quality_metrics,
             "elapsed_seconds": elapsed,
             "agent": "content_writer",
+            "persona_id": persona_id,
         }
 
     except Exception as e:
@@ -226,10 +227,12 @@ def run_automation_agent(
 
             # SmartEditor Document 빌드
             from src.se_converter import build_document_data
+            _persona_id = content_result.get("persona_id")
             se_doc_data = build_document_data(
                 title=title,
                 text=content,
                 image_urls=native_image_components if native_image_components else None,
+                persona_id=_persona_id,
             )
 
             # 콘텐츠 설정 (모드에 따라)

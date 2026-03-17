@@ -279,7 +279,8 @@ with st.sidebar:
             options=list(THUMB_PRESETS.keys()),
             format_func=lambda x: THUMB_PRESETS[x],
         )
-        image_count = st.slider("본문 이미지 수", 3, 7, 4)
+        image_auto = st.checkbox("이미지 수 자동 (소제목에 맞춤)", value=True)
+        image_count = None if image_auto else st.slider("본문 이미지 수", 3, 7, 4)
     else:
         thumbnail_preset = None
         image_count = 0
@@ -289,9 +290,11 @@ with st.sidebar:
     db_dir = f"persona_db/{selected_persona_id}"
     if os.path.exists(db_dir):
         import glob as glob_mod
-        json_files = glob_mod.glob(os.path.join(db_dir, "*.json"))
-        if json_files:
-            st.success("✅ 학습 데이터 적용됨")
+        data_files = glob_mod.glob(os.path.join(db_dir, "*.json")) + glob_mod.glob(os.path.join(db_dir, "*.txt"))
+        # extra_text.txt는 부가 데이터이므로 카운트에서 제외
+        ref_files = [f for f in data_files if not f.endswith("extra_text.txt")]
+        if ref_files:
+            st.success(f"✅ 학습 데이터 적용됨 ({len(ref_files)}건)")
         else:
             st.warning("⚠️ 학습 데이터 없음")
     else:
@@ -340,11 +343,10 @@ with tab1:
     # 발행 모드 선택
     posting_mode = st.radio(
         "발행 모드",
-        options=["human_like", "fast", "agent"],
+        options=["human_like", "fast"],
         format_func=lambda x: {
             "human_like": "🧑 휴먼 시뮬레이션 (사람처럼 행동)",
             "fast": "⚡ 원클릭 (빠른 발행)",
-            "agent": "🤖 에이전트 파이프라인 (품질 분석 포함)",
         }[x],
         index=0,
         horizontal=True,
@@ -367,7 +369,7 @@ with tab1:
         )
 
     # 발행 버튼
-    btn_label = {"human_like": "🧑 휴먼 시뮬레이션 발행", "fast": "⚡ 원클릭 발행", "agent": "🤖 에이전트 발행"}
+    btn_label = {"human_like": "🧑 휴먼 시뮬레이션 발행", "fast": "⚡ 원클릭 발행"}
     oneclick_clicked = st.button(
         btn_label.get(posting_mode, "🚀 발행"),
         type="primary",
@@ -382,28 +384,10 @@ with tab1:
             def log_progress(step, total, msg):
                 print(f"[{step}/{total}] {msg}")
 
-            mode_label = {"human_like": "🧑 휴먼 시뮬레이션", "fast": "⚡ 원클릭", "agent": "🤖 에이전트"}
+            mode_label = {"human_like": "🧑 휴먼 시뮬레이션", "fast": "⚡ 원클릭"}
             with st.spinner(f"{mode_label.get(posting_mode, '')} 발행 진행 중... (최대 5~10분 소요)"):
 
-                if posting_mode == "agent":
-                    # 에이전트 파이프라인 모드
-                    def _do_agent():
-                        from src.agent_orchestrator import run_full_pipeline
-                        return run_full_pipeline(
-                            topic=oneclick_topic.strip(),
-                            persona_id=selected_persona_id,
-                            persona_name=selected_persona_name,
-                            mode="human_like",
-                            model_id=selected_model,
-                            temperature=temperature,
-                            include_images=include_images,
-                            image_count=image_count if include_images else 0,
-                            blog_id=naver_id,
-                            progress_callback=log_progress,
-                        )
-                    result = run_in_thread(_do_agent)
-
-                elif posting_mode == "human_like":
+                if posting_mode == "human_like":
                     # 휴먼 시뮬레이션 모드
                     def _do_human_like():
                         from src.naver_poster import NaverPoster
@@ -451,22 +435,6 @@ with tab1:
                 if result.get('url'):
                     st.markdown(f"**URL:** {result.get('url', '')}")
                 st.markdown(f"**본문:** {result.get('char_count', 0)}자 | **이미지:** {result.get('image_count', 0)}장")
-
-                # 에이전트 모드: 품질 분석 결과 표시
-                if posting_mode == "agent" and result.get("quality_verdict"):
-                    verdict = result["quality_verdict"]
-                    with st.expander(f"📊 품질 분석: {verdict['grade']}등급 (점수: {verdict['score']})"):
-                        st.write(verdict.get("notes", ""))
-                        metrics = result.get("quality_metrics", {})
-                        if metrics:
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("평균 문장 길이", f"{metrics.get('avg_sentence_length', 0)}자")
-                            with col2:
-                                st.metric("소제목 수", metrics.get('heading_count', 0))
-                            with col3:
-                                endings = metrics.get('ending_ratios', {})
-                                st.metric("~습니다 비율", f"{endings.get('formal', 0)*100:.0f}%")
 
                 # 제목 후보
                 gen = result.get("generation", {})
@@ -1009,7 +977,7 @@ with tab4:
 
     col_a, col_b = st.columns(2)
     with col_a:
-        target_blog_id = st.text_input("블로그 ID", value="jninsa")
+        target_blog_id = st.text_input("블로그 ID", value=selected_blog.get("blog_id", "jninsa"))
     with col_b:
         st.info(f"저장 대상: **{selected_persona_name}**")
 
