@@ -87,6 +87,7 @@ def generate_preview(topic, persona_id, persona_name,
                 content=content,
                 image_count=image_count or 4,
                 user_image_paths=user_image_paths,
+                persona_id=persona_id,
             )
             if thumbnail_preset:
                 thumb = generate_thumbnail(
