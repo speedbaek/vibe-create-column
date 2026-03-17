@@ -197,58 +197,87 @@ def execute_job(job, progress_callback=None):
     except Exception:
         blog_id = os.environ.get("NAVER_ID", "")
 
-    try:
-        poster = NaverPoster(progress_callback=None, blog_key=blog_key)
+    max_retries = 2
+    last_error = None
+
+    for attempt in range(1, max_retries + 1):
         try:
-            result = poster.one_click_post(
-                topic=job["topic"],
-                persona_id=job["persona_id"],
-                persona_name=job["persona_name"],
-                model_id=job.get("model_id", "claude-sonnet-4-6"),
-                temperature=job.get("temperature", 0.7),
-                include_images=job.get("include_images", True),
-                image_count=job.get("image_count"),  # None이면 소제목 수에 맞춤
-                blog_id=blog_id,
-                category_no=job.get("category_no"),
-                override_title=job.get("override_title"),
+            poster = NaverPoster(progress_callback=None, blog_key=blog_key)
+            try:
+                result = poster.post_human_like(
+                    topic=job["topic"],
+                    persona_id=job["persona_id"],
+                    persona_name=job["persona_name"],
+                    model_id=job.get("model_id", "claude-sonnet-4-6"),
+                    temperature=job.get("temperature", 0.7),
+                    include_images=job.get("include_images", True),
+                    image_count=job.get("image_count"),
+                    blog_id=blog_id,
+                    category_no=job.get("category_no"),
+                    override_title=job.get("override_title"),
+                )
+            finally:
+                poster.close()
+
+            if result.get("success"):
+                break  # 성공하면 재시도 루프 탈출
+            else:
+                last_error = result.get("error", "발행 실패")
+                if attempt < max_retries:
+                    import time as _time
+                    print(f"[scheduler] 발행 실패 (시도 {attempt}/{max_retries}), 30초 후 재시도: {last_error}")
+                    _time.sleep(30)
+                    continue
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            if attempt < max_retries:
+                import time as _time
+                print(f"[scheduler] 오류 (시도 {attempt}/{max_retries}), 30초 후 재시도: {last_error}")
+                _time.sleep(30)
+                continue
+            else:
+                result = {"success": False, "error": last_error}
+                break
+
+    # ── 결과 처리 ──
+    if result.get("success"):
+        update_job_status(
+            job_id, "published",
+            result_url=result.get("url"),
+            result_title=result.get("title"),
+        )
+        if progress_callback:
+            progress_callback(job_id, "published", result.get("url", ""))
+
+        # 발행 히스토리 기록
+        try:
+            from app import save_to_history
+            save_to_history(
+                job.get("persona_id", "unknown"),
+                job.get("keyword", job.get("topic", "")),
+                result.get("title", job.get("keyword", "")),
             )
-        finally:
-            poster.close()
+        except Exception as e:
+            print(f"[scheduler] 히스토리 기록 실패 (발행은 성공): {e}")
 
-        if result.get("success"):
-            update_job_status(
-                job_id, "published",
-                result_url=result.get("url"),
-                result_title=result.get("title"),
-            )
-            if progress_callback:
-                progress_callback(job_id, "published", result.get("url", ""))
+        # 구글시트에 발행 완료 기록
+        sheet_row = job.get("sheet_row_index")
+        if sheet_row:
+            try:
+                from src.sheet_manager import mark_published
+                mark_published(
+                    row_index=sheet_row,
+                    post_url=result.get("url", ""),
+                )
+            except Exception as e:
+                print(f"[scheduler] 시트 기록 실패 (발행은 성공): {e}")
 
-            # 구글시트에 발행 완료 기록
-            sheet_row = job.get("sheet_row_index")
-            if sheet_row:
-                try:
-                    from src.sheet_manager import mark_published
-                    mark_published(
-                        row_index=sheet_row,
-                        post_url=result.get("url", ""),
-                    )
-                except Exception as e:
-                    print(f"[scheduler] 시트 기록 실패 (발행은 성공): {e}")
-
-            return {
-                "job_id": job_id, "success": True,
-                "url": result.get("url"), "title": result.get("title"),
-            }
-        else:
-            err = result.get("error", "발행 실패")
-            update_job_status(job_id, "failed", error=err)
-            if progress_callback:
-                progress_callback(job_id, "failed", err)
-            return {"job_id": job_id, "success": False, "error": err}
-
-    except Exception as e:
-        err = f"{type(e).__name__}: {e}"
+        return {
+            "job_id": job_id, "success": True,
+            "url": result.get("url"), "title": result.get("title"),
+        }
+    else:
+        err = result.get("error", "발행 실패")
         update_job_status(job_id, "failed", error=err)
         if progress_callback:
             progress_callback(job_id, "failed", err)

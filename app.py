@@ -152,7 +152,7 @@ def render_html_copy_button(html_text, button_id="htmlCopyBtn"):
     components.html(js_code, height=50)
 
 
-def save_to_history(persona_id, topic, content):
+def save_to_history(persona_id, topic, content, url="", blog_id=""):
     output_dir = f"outputs/{persona_id}"
     os.makedirs(output_dir, exist_ok=True)
     history_path = os.path.join(output_dir, "history.json")
@@ -163,11 +163,16 @@ def save_to_history(persona_id, topic, content):
                 history_data = json.load(f)
         except (json.JSONDecodeError, IOError):
             history_data = []
-    history_data.insert(0, {
+    entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "topic": topic,
         "content": content,
-    })
+    }
+    if url:
+        entry["url"] = url
+    if blog_id:
+        entry["blog_id"] = blog_id
+    history_data.insert(0, entry)
     with open(history_path, "w", encoding="utf-8") as f:
         json.dump(history_data, f, ensure_ascii=False, indent=4)
 
@@ -363,6 +368,117 @@ with tab1:
         key="posting_mode",
     )
 
+    # ── 추천 키워드 즉시 발행 ──
+    if SHEET_LOADED:
+        with st.expander("🎯 추천 키워드로 즉시 발행", expanded=False):
+            st.caption("구글시트 키워드 중 예약/발행 이력과 중복되지 않는 키워드를 자동 추천합니다.")
+
+            rec_count = st.number_input(
+                "추천 수", min_value=1, max_value=10, value=3, step=1, key="rec_kw_count"
+            )
+
+            if st.button("🔍 키워드 추천 받기", key="btn_recommend_kw"):
+                with st.spinner("키워드 분석 중..."):
+                    try:
+                        # 예약 대기 중인 키워드 수집 (중복 제외용)
+                        reserved_topics = set()
+                        if SCHEDULER_LOADED:
+                            for j in get_all_jobs():
+                                if j.get("status") in ("pending", "publishing"):
+                                    reserved_topics.add(j.get("topic", "").strip())
+
+                        # 스마트 선정 (카테고리 다양성 + 조회수 가중치)
+                        candidates = smart_select_keywords(
+                            persona_id=selected_persona_id,
+                            count=rec_count + len(reserved_topics),  # 여유분 확보
+                            min_volume=30,
+                        )
+
+                        # 예약 중복 제거
+                        filtered = [c for c in candidates if c["keyword"] not in reserved_topics]
+                        st.session_state._recommended_keywords = filtered[:rec_count]
+                    except Exception as e:
+                        st.error(f"추천 실패: {e}")
+
+            # 추천 결과 표시 + 선택
+            rec_list = st.session_state.get("_recommended_keywords", [])
+            if rec_list:
+                st.markdown("##### 추천 키워드")
+                selected_rec = []
+                for i, kw in enumerate(rec_list):
+                    col_chk, col_kw, col_cat, col_vol = st.columns([0.5, 3, 1.5, 1])
+                    checked = col_chk.checkbox("", value=True, key=f"rec_chk_{i}")
+                    col_kw.write(f"**{kw['keyword']}**")
+                    col_cat.write(f"`{kw.get('category', '-')}`")
+                    col_vol.write(f"조회수 {kw.get('total', 0)}")
+                    if checked:
+                        selected_rec.append(kw)
+
+                if selected_rec:
+                    if st.button(
+                        f"🚀 선택한 {len(selected_rec)}건 즉시 발행",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=not env_ok,
+                        key="btn_rec_publish",
+                    ):
+                        for idx, kw_item in enumerate(selected_rec):
+                            try:
+                                def log_progress(step, total, msg):
+                                    print(f"[추천발행 {idx+1}/{len(selected_rec)}] [{step}/{total}] {msg}")
+
+                                st.info(f"({idx+1}/{len(selected_rec)}) **{kw_item['keyword']}** 발행 중...")
+                                with st.spinner(f"{kw_item['keyword']} 발행 중... (최대 5~10분)"):
+                                    def _do_rec_publish(topic=kw_item["keyword"], row_idx=kw_item.get("row_index")):
+                                        from src.naver_poster import NaverPoster
+                                        poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
+                                        try:
+                                            result = poster.post_human_like(
+                                                topic=topic,
+                                                persona_id=selected_persona_id,
+                                                persona_name=selected_persona_name,
+                                                model_id=selected_model,
+                                                temperature=temperature,
+                                                include_images=include_images,
+                                                image_count=image_count if include_images else 0,
+                                                blog_id=naver_id,
+                                            )
+                                            # 발행 성공 시 구글시트 기록
+                                            if result.get("success") and row_idx:
+                                                try:
+                                                    from datetime import datetime
+                                                    mark_published(
+                                                        row_idx,
+                                                        datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        result.get("url", ""),
+                                                    )
+                                                except Exception:
+                                                    pass
+                                            return result
+                                        finally:
+                                            poster.close()
+                                    result = run_in_thread(_do_rec_publish)
+
+                                if result.get("success"):
+                                    # 발행 히스토리 기록
+                                    save_to_history(
+                                        selected_persona_id,
+                                        kw_item['keyword'],
+                                        result.get('title', kw_item['keyword']),
+                                        url=result.get('url', ''),
+                                    )
+                                    st.success(f"✅ **{kw_item['keyword']}** → {result.get('title', '')} [링크]({result.get('url', '')})")
+                                else:
+                                    st.error(f"❌ **{kw_item['keyword']}** 실패: {result.get('error', '')}")
+                            except Exception as e:
+                                st.error(f"❌ **{kw_item['keyword']}** 오류: {e}")
+
+                        # 발행 후 추천 목록 초기화
+                        st.session_state._recommended_keywords = []
+                        st.cache_data.clear()
+
+        st.markdown("---")
+
     # 키워드 입력
     oneclick_topic = st.text_input(
         "발행 키워드",
@@ -440,6 +556,13 @@ with tab1:
                     result = run_in_thread(_do_one_click)
 
             if result.get("success"):
+                # 발행 히스토리 기록
+                save_to_history(
+                    selected_persona_id,
+                    oneclick_topic,
+                    result.get('title', oneclick_topic),
+                    url=result.get('url', ''),
+                )
                 st.success(f"✅ 발행 완료!")
                 st.markdown(f"**제목:** {result.get('title', '')}")
                 if result.get('url'):
@@ -637,6 +760,7 @@ with tab1:
                             st.warning(f"⚠️ {fail_count}건 발행 실패")
                         for r in batch_results:
                             if r.get("success"):
+                                save_to_history(selected_persona_id, r['topic'], r.get('title', r['topic']), url=r.get('url', ''))
                                 st.write(f"✅ **{r.get('title', r['topic'])[:40]}** → {r.get('url', '')}")
                             else:
                                 st.write(f"❌ **{r['topic'][:40]}** → {r.get('error', '알 수 없는 오류')}")
@@ -810,13 +934,20 @@ with tab2:
     if not SHEET_LOADED:
         st.error("sheet_manager 모듈을 불러오지 못했습니다.")
     else:
-        # 시트 통계
+        # 시트 통계 (캐싱: 5분간 재사용 → API 쿼터 초과 방지)
+        @st.cache_data(ttl=300, show_spinner=False)
+        def _cached_sheet_stats():
+            return get_sheet_stats()
+
         try:
-            stats = get_sheet_stats()
-            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            stats = _cached_sheet_stats()
+            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns([1, 1, 1, 1.2])
             col_stat1.metric("전체 키워드", f"{stats['total_keywords']}개")
             col_stat2.metric("발행 완료", f"{stats['published']}개")
             col_stat3.metric("미발행", f"{stats['remaining']}개")
+            SHEET_URL = "https://docs.google.com/spreadsheets/d/1B-9hmCqvdu3QivCPy12z6nSeydTTqk8xnC5YONMmFSA/edit"
+            col_stat4.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+            col_stat4.link_button("📊 구글시트 키워드 관리 ↗", SHEET_URL, use_container_width=True)
 
             if stats.get("category_distribution"):
                 with st.expander("카테고리 분포"):
@@ -952,38 +1083,34 @@ with tab2:
             col_p4.metric("실패", f"{len(failed_jobs)}건")
 
             if pending_jobs:
-                # 날짜별 그룹핑
-                by_date = {}
+                # 날짜+블로그별 그룹핑
+                from collections import defaultdict
+                groups = defaultdict(list)
                 for j in pending_jobs:
                     sched_time = j.get("scheduled_time", "")
                     date_part = sched_time.split(" ")[0] if " " in sched_time else "즉시"
-                    by_date.setdefault(date_part, []).append(j)
+                    bk = j.get("blog_key", "")
+                    bconf = BLOG_CONFIG.get(bk, {})
+                    blog_name = bconf.get("display_name", bk)
+                    groups[(date_part, blog_name)].append(j)
 
-                for date_key in sorted(by_date.keys()):
-                    jobs_list = by_date[date_key]
-                    # 블로그별 구분
-                    blog_names = set()
-                    for j in jobs_list:
-                        bk = j.get("blog_key", "")
-                        bconf = BLOG_CONFIG.get(bk, {})
-                        blog_names.add(bconf.get("display_name", bk))
+                for (date_key, blog_name) in sorted(groups.keys()):
+                    jobs_list = sorted(groups[(date_key, blog_name)], key=lambda x: x.get("scheduled_time", ""))
+                    count = len(jobs_list)
+                    status_label = "⏳ 대기중"
 
-                    st.markdown(f"**📅 {date_key}** — {', '.join(blog_names)} ({len(jobs_list)}건)")
+                    with st.expander(f"📅 {date_key}  |  {blog_name}  |  {count}건  |  {status_label}"):
+                        for j in jobs_list:
+                            sched_time = j.get("scheduled_time", "")
+                            time_part = sched_time.split(" ")[1][:5] if " " in sched_time else "즉시"
+                            topic = j.get("topic", "")
 
-                    for j in sorted(jobs_list, key=lambda x: x.get("scheduled_time", "")):
-                        sched_time = j.get("scheduled_time", "")
-                        time_part = sched_time.split(" ")[1] if " " in sched_time else "즉시"
-                        bk = j.get("blog_key", "")
-                        bconf = BLOG_CONFIG.get(bk, {})
-                        blog_label = bconf.get("display_name", bk)[:6]
-
-                        col_j1, col_j2, col_j3, col_j4 = st.columns([1, 3, 1.5, 0.5])
-                        col_j1.write(f"`{time_part}`")
-                        col_j2.write(j.get("topic", ""))
-                        col_j3.write(f"_{blog_label}_")
-                        if col_j4.button("❌", key=f"del_job_{j['id']}"):
-                            remove_job(j["id"])
-                            st.rerun()
+                            col_t, col_k, col_del = st.columns([1, 5, 0.5])
+                            col_t.write(f"`{time_part}`")
+                            col_k.write(topic)
+                            if col_del.button("❌", key=f"del_job_{j['id']}"):
+                                remove_job(j["id"])
+                                st.rerun()
 
             elif not published_jobs and not failed_jobs:
                 st.info("예약된 작업이 없습니다. 위에서 키워드 미리보기 → 예약 등록을 진행해보세요.")
@@ -1238,11 +1365,17 @@ with tab6:
             with open(history_file, "r", encoding="utf-8") as f:
                 histories = json.load(f)
             if histories:
-                for idx, record in enumerate(histories[:20]):
+                for idx, record in enumerate(histories[:50]):
                     ts = record.get("timestamp", "")
                     topic_text = record.get("topic", "주제 없음")
                     content = record.get("content", "")
-                    with st.expander(f"🕒 {ts} | {topic_text[:50]}"):
+                    url = record.get("url", "")
+                    label = f"🕒 {ts} | {topic_text[:50]}"
+                    if url:
+                        label += f" | [링크]({url})"
+                    with st.expander(label):
+                        if url:
+                            st.markdown(f"**URL:** {url}")
                         render_safe_html(content)
                         render_copy_button(content, f"hist_copy_{idx}")
             else:

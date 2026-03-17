@@ -148,9 +148,9 @@ def load_persona_rules(persona_id):
                 end_cta = random.choice(consult_options)['text'] if consult_options else None
 
                 if mid_cta:
-                    rules_parts.append(f"- 글 중간에 아래 핵심 컨텐츠 유도 문구를 자연스럽게 삽입하세요 (링크 마커 포함):\n\"{mid_cta}\"")
+                    rules_parts.append(f"- 글 중간(본문 내용이 충분히 전개된 후)에 아래 전환 문구를 삽입하세요. 앞 문단의 내용과 자연스럽게 이어져야 하며, 뜬금없이 자기소개를 하는 느낌이 나면 안 됩니다. (링크 마커 포함):\n\"{mid_cta}\"")
                 if end_cta:
-                    rules_parts.append(f"- 글 끝부분에 아래 상담 유도 문구를 삽입하세요 (링크 마커 포함):\n\"{end_cta}\"")
+                    rules_parts.append(f"- 글 끝부분(마무리 단계)에 아래 상담 유도 문구를 삽입하세요 (링크 마커 포함):\n\"{end_cta}\"")
             else:
                 # 레거시: mid_text_options / end_text_options 방식 (하위 호환)
                 mid_options = cta.get('mid_text_options', [])

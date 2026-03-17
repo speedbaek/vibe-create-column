@@ -229,10 +229,10 @@ _BG_THEMES = [
      "accent": (80, 200, 180), "name": "dark_teal"},
     {"grad_start": (72, 85, 99), "grad_end": (41, 50, 60), "text": "#FFFFFF",
      "accent": (200, 200, 200), "name": "charcoal"},
-    {"grad_start": (240, 240, 245), "grad_end": (220, 225, 235), "text": "#1a1a2e",
-     "accent": (100, 120, 180), "name": "light_gray"},
-    {"grad_start": (250, 248, 240), "grad_end": (235, 230, 220), "text": "#2c2c2c",
-     "accent": (180, 150, 100), "name": "warm_ivory"},
+    {"grad_start": (200, 205, 215), "grad_end": (170, 180, 200), "text": "#1a1a2e",
+     "accent": (80, 100, 160), "name": "steel_blue"},
+    {"grad_start": (210, 200, 185), "grad_end": (185, 175, 155), "text": "#2c2c2c",
+     "accent": (150, 120, 70), "name": "warm_sand"},
 ]
 
 
@@ -372,8 +372,8 @@ def _style_center_box(text, output_path, theme_index=0):
         box_color = (255, 255, 255)
         text_color = '#1a1a2e'
     else:
-        box_color = theme["grad_start"]
-        text_color = '#FFFFFF'
+        box_color = (255, 255, 255)
+        text_color = '#2c2c2c'
 
     draw.rectangle(
         [box_margin_x, box_margin_y, IMG_WIDTH - box_margin_x, IMG_HEIGHT - box_margin_y],
