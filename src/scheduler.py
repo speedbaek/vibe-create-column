@@ -249,14 +249,30 @@ def execute_job(job, progress_callback=None):
         if progress_callback:
             progress_callback(job_id, "published", result.get("url", ""))
 
-        # 발행 히스토리 기록
+        # 발행 히스토리 기록 (순환 임포트 방지: app.py의 save_to_history 대신 직접 저장)
         try:
-            from app import save_to_history
-            save_to_history(
-                job.get("persona_id", "unknown"),
-                job.get("keyword", job.get("topic", "")),
-                result.get("title", job.get("keyword", "")),
-            )
+            persona_id = job.get("persona_id", "unknown")
+            hist_dir = os.path.join("outputs", persona_id)
+            os.makedirs(hist_dir, exist_ok=True)
+            hist_path = os.path.join(hist_dir, "history.json")
+            hist_data = []
+            if os.path.exists(hist_path):
+                try:
+                    with open(hist_path, "r", encoding="utf-8") as hf:
+                        hist_data = json.load(hf)
+                except (json.JSONDecodeError, IOError):
+                    hist_data = []
+            entry = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "topic": job.get("topic", ""),
+                "content": result.get("title", job.get("topic", "")),
+                "url": result.get("url", ""),
+                "blog_id": blog_id,
+                "source": "scheduler",
+            }
+            hist_data.insert(0, entry)
+            with open(hist_path, "w", encoding="utf-8") as hf:
+                json.dump(hist_data, hf, ensure_ascii=False, indent=4)
         except Exception as e:
             print(f"[scheduler] 히스토리 기록 실패 (발행은 성공): {e}")
 

@@ -278,7 +278,10 @@ def _style_gradient_card(text, output_path, theme_index=0):
         bbox = draw.textbbox((0, 0), line, font=font)
         w = bbox[2] - bbox[0]
         x = (IMG_WIDTH - w) // 2
-        draw.text((x + 1, y + 1), line, fill='#00000044', font=font)
+        # 그림자 + 볼드 효과
+        draw.text((x + 2, y + 2), line, fill='#00000044', font=font)
+        draw.text((x + 1, y), line, fill=text_color, font=font)
+        draw.text((x, y + 1), line, fill=text_color, font=font)
         draw.text((x, y), line, fill=text_color, font=font)
         y += line_heights[i] + 10
 
@@ -402,6 +405,9 @@ def _style_center_box(text, output_path, theme_index=0):
         bbox = draw.textbbox((0, 0), line, font=font)
         w = bbox[2] - bbox[0]
         x = (IMG_WIDTH - w) // 2
+        # 볼드 효과: 1px 오프셋으로 겹쳐 그려서 글자 두께 보강
+        draw.text((x + 1, y), line, fill=text_color, font=font)
+        draw.text((x, y + 1), line, fill=text_color, font=font)
         draw.text((x, y), line, fill=text_color, font=font)
         y += line_heights[i] + 8
 
