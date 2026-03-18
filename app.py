@@ -446,19 +446,33 @@ with tab1:
                                 st.info(f"({idx+1}/{len(selected_rec)}) **{kw_item['keyword']}** 발행 중...")
                                 with st.spinner(f"{kw_item['keyword']} 발행 중... (최대 5~10분)"):
                                     def _do_rec_publish(topic=kw_item["keyword"], row_idx=kw_item.get("row_index")):
-                                        from src.naver_poster import NaverPoster
-                                        poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
+                                        _is_ts = selected_blog.get("platform") == "tistory"
+                                        if _is_ts:
+                                            from src.tistory_poster import TistoryPoster
+                                            poster = TistoryPoster(progress_callback=log_progress, blog_key=selected_blog_key)
+                                        else:
+                                            from src.naver_poster import NaverPoster
+                                            poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
                                         try:
-                                            result = poster.post_human_like(
-                                                topic=topic,
-                                                persona_id=selected_persona_id,
-                                                persona_name=selected_persona_name,
-                                                model_id=selected_model,
-                                                temperature=temperature,
-                                                include_images=include_images,
-                                                image_count=image_count if include_images else 0,
-                                                blog_id=naver_id,
-                                            )
+                                            if _is_ts:
+                                                result = poster.post_full_pipeline(
+                                                    topic=topic,
+                                                    persona_id=selected_persona_id,
+                                                    persona_name=selected_persona_name,
+                                                    model_id=selected_model,
+                                                    include_images=include_images,
+                                                )
+                                            else:
+                                                result = poster.post_human_like(
+                                                    topic=topic,
+                                                    persona_id=selected_persona_id,
+                                                    persona_name=selected_persona_name,
+                                                    model_id=selected_model,
+                                                    temperature=temperature,
+                                                    include_images=include_images,
+                                                    image_count=image_count if include_images else 0,
+                                                    blog_id=naver_id,
+                                                )
                                             # 발행 성공 시 구글시트 기록
                                             if result.get("success") and row_idx:
                                                 try:
@@ -532,20 +546,17 @@ with tab1:
                 _is_tistory = selected_blog.get("platform") == "tistory"
 
                 if _is_tistory:
-                    # 티스토리 발행
+                    # 티스토리 발행 (모든 모드 공통)
                     def _do_tistory():
                         from src.tistory_poster import TistoryPoster
                         poster = TistoryPoster(progress_callback=log_progress, blog_key=selected_blog_key)
                         try:
-                            poster.connect()
                             return poster.post_full_pipeline(
                                 topic=oneclick_topic.strip(),
                                 persona_id=selected_persona_id,
                                 persona_name=selected_persona_name,
                                 model_id=selected_model,
-                                temperature=temperature,
                                 include_images=include_images,
-                                image_count=image_count if include_images else 0,
                                 override_title=override_title.strip() if override_title.strip() else None,
                             )
                         finally:
@@ -594,6 +605,9 @@ with tab1:
                             poster.close()
                     result = run_in_thread(_do_one_click)
 
+            # 결과를 session_state에 저장 (rerun 후에도 유지)
+            st.session_state["_last_publish_result"] = result
+
             if result.get("success"):
                 # 발행 히스토리 기록
                 save_to_history(
@@ -602,20 +616,32 @@ with tab1:
                     result.get('title', oneclick_topic),
                     url=result.get('url', ''),
                 )
-                st.success(f"✅ 발행 완료!")
-                st.markdown(f"**제목:** {result.get('title', '')}")
-                if result.get('url'):
-                    st.markdown(f"**URL:** {result.get('url', '')}")
-                st.markdown(f"**본문:** {result.get('char_count', 0)}자 | **이미지:** {result.get('image_count', 0)}장")
 
-                # 제목 후보
-                gen = result.get("generation", {})
-                if gen.get("title_candidates"):
-                    with st.expander("📝 제목 후보"):
-                        for i, t in enumerate(gen["title_candidates"]):
-                            st.write(f"{i+1}. {t}")
-            else:
-                st.error(f"❌ 발행 실패: {result.get('error', '알 수 없는 오류')}")
+    # 발행 결과 표시 (rerun 후에도 유지)
+    if st.session_state.get("_last_publish_result"):
+        result = st.session_state["_last_publish_result"]
+        if result.get("success"):
+            st.success(f"✅ 발행 완료!")
+            st.markdown(f"**제목:** {result.get('title', '')}")
+            if result.get('url'):
+                st.markdown(f"🔗 **URL:** [{result.get('url', '')}]({result.get('url', '')})")
+            st.markdown(f"**본문:** {result.get('char_count', 0)}자 | **이미지:** {result.get('image_count', 0)}장")
+
+            # 제목 후보
+            gen = result.get("generation", {})
+            if gen.get("title_candidates"):
+                with st.expander("📝 제목 후보"):
+                    for i, t in enumerate(gen["title_candidates"]):
+                        st.write(f"{i+1}. {t}")
+
+            if st.button("🗑️ 결과 닫기", key="clear_publish_result"):
+                del st.session_state["_last_publish_result"]
+                st.rerun()
+        else:
+            st.error(f"❌ 발행 실패: {result.get('error', '알 수 없는 오류')}")
+            if st.button("🗑️ 에러 닫기", key="clear_publish_error"):
+                del st.session_state["_last_publish_result"]
+                st.rerun()
 
         except ImportError as ie:
             st.error(f"모듈 로드 실패: {ie}. playwright 설치: `pip install playwright && playwright install chromium`")
@@ -751,7 +777,7 @@ with tab1:
                     st.warning("즉시 발행 키워드가 없습니다. 모드를 확인해주세요.")
                 else:
                     try:
-                        from src.naver_poster import NaverPoster
+                        _is_ts_batch = selected_blog.get("platform") == "tistory"
                         batch_progress = st.progress(0)
                         batch_status = st.empty()
                         batch_results = []
@@ -764,6 +790,20 @@ with tab1:
                             cat_no = cat.get("category_no") if cat else None
 
                             def _do_batch(topic, c_no):
+                                if _is_ts_batch:
+                                    from src.tistory_poster import TistoryPoster
+                                    poster = TistoryPoster(progress_callback=None, blog_key=selected_blog_key)
+                                    try:
+                                        return poster.post_full_pipeline(
+                                            topic=topic,
+                                            persona_id=selected_persona_id,
+                                            persona_name=selected_persona_name,
+                                            model_id=selected_model,
+                                            include_images=include_images,
+                                        )
+                                    finally:
+                                        poster.close()
+                                from src.naver_poster import NaverPoster
                                 poster = NaverPoster(progress_callback=None, blog_key=selected_blog_key)
                                 try:
                                     return poster.one_click_post(

@@ -728,6 +728,11 @@ class TistoryPoster:
 
         result["title"] = title
         result["content"] = raw_content
+        result["char_count"] = len(raw_content)
+        result["image_count"] = len(cdn_image_urls)
+        result["generation"] = {
+            "title_candidates": preview.get("title_candidates", []),
+        }
         self._progress(5, total_steps, "완료!")
         return result
 
