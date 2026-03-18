@@ -33,7 +33,10 @@ def _get_blog_config(blog_key):
 
 
 def _log(msg):
-    print(f"[TistoryPoster] {msg}")
+    try:
+        print(f"[TistoryPoster] {msg}")
+    except UnicodeEncodeError:
+        print(f"[TistoryPoster] {msg.encode('utf-8', errors='replace').decode('utf-8')}")
 
 
 class TistoryPoster:
@@ -255,6 +258,51 @@ class TistoryPoster:
             self.page.goto(editor_url, wait_until="domcontentloaded", timeout=30000)
             time.sleep(3 + random.uniform(0.5, 1.5))
 
+            # 임시저장/복구 팝업 제거 (있을 경우)
+            try:
+                # 티스토리: "이전에 작성하던 글이 있습니다" 같은 팝업
+                dismissed = self.page.evaluate("""() => {
+                    // 모든 팝업/모달에서 "취소", "새로", "아니오", "닫기" 버튼 찾아 클릭
+                    const btns = document.querySelectorAll('button, a.btn, .btn');
+                    for (const btn of btns) {
+                        const txt = (btn.textContent || '').trim();
+                        if (txt.includes('취소') || txt.includes('새로') || txt.includes('아니')
+                            || txt.includes('닫기') || txt.includes('삭제')) {
+                            // 모달/팝업 안의 버튼인 경우만
+                            const parent = btn.closest('.layer, .modal, .popup, [class*="alert"], [class*="dialog"], [role="dialog"]');
+                            if (parent) {
+                                btn.click();
+                                return 'dismissed: ' + txt;
+                            }
+                        }
+                    }
+                    // confirm 팝업도 있을 수 있으므로 dismiss
+                    return null;
+                }""")
+                if dismissed:
+                    _log(f"팝업 제거: {dismissed}")
+                    time.sleep(1)
+
+                # "이전 작성글 보기" 같은 알림도 제거
+                self.page.evaluate("""() => {
+                    const alerts = document.querySelectorAll('[class*="notification"], [class*="toast"], .mce-notification');
+                    for (const a of alerts) { a.remove(); }
+                }""")
+            except Exception:
+                pass
+
+            # 기존 제목/본문 초기화 (임시저장 글이 남아있을 수 있음)
+            self.page.evaluate("""() => {
+                // 제목 초기화
+                const titleInput = document.getElementById('post-title-inp');
+                if (titleInput) { titleInput.value = ''; titleInput.innerHTML = ''; }
+                // TinyMCE 본문 초기화
+                if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+                    tinymce.activeEditor.setContent('');
+                }
+            }""")
+            time.sleep(1)
+
             # 2. 카테고리 선택
             self._progress(2, total_steps, f"카테고리 선택 중... ({keyword})")
             self._select_category(keyword)
@@ -268,7 +316,12 @@ class TistoryPoster:
             )
             if title_input:
                 title_input.click()
-                time.sleep(0.5)
+                time.sleep(0.3)
+                # 기존 내용 선택 후 삭제
+                self.page.keyboard.press('Control+a')
+                time.sleep(0.2)
+                self.page.keyboard.press('Backspace')
+                time.sleep(0.3)
                 # 한 글자씩 타이핑 (휴먼 시뮬레이션)
                 for char in title:
                     title_input.type(char, delay=random.randint(30, 80))
@@ -314,6 +367,35 @@ class TistoryPoster:
 
             time.sleep(2 + random.uniform(0.5, 1.5))
 
+            # CodeMirror → 숨겨진 textarea 강제 동기화 (HTML 모드에서 바로 발행)
+            _log("CodeMirror 동기화 중...")
+            self.page.evaluate("""() => {
+                // 1. CodeMirror.save() - textarea에 동기화
+                const cms = document.querySelectorAll('.CodeMirror');
+                for (const cm of cms) {
+                    if (cm.CodeMirror) {
+                        cm.CodeMirror.save();
+                    }
+                }
+                // 2. 모든 textarea에 CodeMirror 내용 복사
+                const cmContent = cms[0]?.CodeMirror?.getValue() || '';
+                const textareas = document.querySelectorAll('textarea');
+                for (const ta of textareas) {
+                    if (ta.style.display === 'none' || ta.offsetParent === null) {
+                        ta.value = cmContent;
+                    }
+                }
+                // 3. TinyMCE 내부 상태에도 반영
+                if (typeof tinymce !== 'undefined') {
+                    const editors = tinymce.editors || [];
+                    for (const ed of editors) {
+                        try { ed.setContent(cmContent); } catch(e) {}
+                    }
+                }
+            }""")
+            time.sleep(1)
+            _log("CodeMirror 동기화 완료")
+
             # 6. 태그 입력
             if tags:
                 self._progress(6, total_steps, f"태그 입력 중... ({', '.join(tags[:3])})")
@@ -331,74 +413,200 @@ class TistoryPoster:
             self._progress(7, total_steps, "발행 버튼 클릭 중...")
             time.sleep(1 + random.uniform(0.5, 1.0))
 
-            # "완료" 버튼 = 발행 레이어 열기 (publish-layer-btn)
-            publish_layer_btn = self.page.locator('#publish-layer-btn')
-            if publish_layer_btn.count() > 0:
-                publish_layer_btn.click()
-                _log("발행 레이어 열림")
-                time.sleep(2 + random.uniform(0.3, 0.8))
+            # 발행 전 URL 기록 (발행 후 비교용)
+            pre_publish_url = self.page.url
+            _log(f"발행 전 URL: {pre_publish_url}")
 
-                # 공개 설정: #open20 (공개) 라디오 선택 (기본이 비공개임)
-                open_radio = self.page.locator('#open20')
-                if open_radio.count() > 0:
-                    open_radio.click()
-                    _log("공개 설정 완료")
-                    time.sleep(0.5)
-
-                # 최종 "공개로 발행" 버튼 클릭 (#publish-btn)
-                final_btn = self.page.locator('#publish-btn')
-                if final_btn.count() > 0:
-                    final_btn.click()
-                    _log("공개로 발행 클릭!")
-                    time.sleep(5 + random.uniform(1, 2))
+            # 발행 레이어 열기 (publish-layer-btn = "완료" 버튼)
+            # Playwright click + JS click 이중 시도
+            try:
+                btn = self.page.locator('#publish-layer-btn')
+                if btn.count() > 0 and btn.is_visible():
+                    btn.click()
                 else:
-                    _log("publish-btn not found, trying fallback")
-                    self.page.evaluate("""() => {
-                        const btns = document.querySelectorAll('button');
-                        for (const b of btns) {
-                            if (b.offsetParent && b.textContent.includes('발행')) {
-                                b.click(); return;
-                            }
-                        }
-                    }""")
-                    time.sleep(5 + random.uniform(1, 2))
-            else:
-                _log("완료 버튼 없음!")
-                return {"success": False, "url": "", "error": "publish button not found"}
+                    self.page.evaluate('document.getElementById("publish-layer-btn")?.click()')
+            except Exception:
+                self.page.evaluate('document.getElementById("publish-layer-btn")?.click()')
+            _log("발행 레이어 열기 시도")
+            time.sleep(2 + random.uniform(0.5, 1.0))
+
+            # 발행 레이어 열렸는지 확인
+            layer_open = self.page.evaluate("""() => {
+                const layer = document.getElementById('publish-layer');
+                if (!layer) return false;
+                const style = window.getComputedStyle(layer);
+                return style.display !== 'none' && style.visibility !== 'hidden';
+            }""")
+            _log(f"발행 레이어 상태: {'열림' if layer_open else '안 열림'}")
+
+            if not layer_open:
+                # fallback: JS로 강제 표시
+                self.page.evaluate("""() => {
+                    const layer = document.getElementById('publish-layer');
+                    if (layer) { layer.style.display = 'block'; layer.style.visibility = 'visible'; }
+                }""")
+                time.sleep(1)
+
+            # 공개 설정: #open20 (공개) 라디오
+            self.page.evaluate("""() => {
+                const radio = document.getElementById('open20');
+                if (radio) { radio.checked = true; radio.click(); }
+            }""")
+            _log("공개 설정 완료")
+            time.sleep(0.5)
+
+            # 최종 발행 버튼 클릭 (#publish-btn)
+            self.page.evaluate("""() => {
+                const btn = document.getElementById('publish-btn');
+                if (btn) { btn.click(); }
+            }""")
+            _log("발행 버튼 JS 클릭!")
+            time.sleep(3)
+
+            # Playwright click도 추가 시도 (이중 안전장치)
+            try:
+                final_btn = self.page.locator('#publish-btn')
+                if final_btn.count() > 0 and final_btn.is_visible():
+                    final_btn.click()
+                    _log("발행 버튼 Playwright 클릭!")
+            except Exception:
+                pass
+            time.sleep(5 + random.uniform(1, 2))
 
             # 8. 발행 결과 확인
             self._progress(8, total_steps, "발행 결과 확인 중...")
-            time.sleep(3)
+
+            # 페이지 리다이렉트 대기 (최대 15초)
+            blog_url = self._blog_config.get("blog_url", "")
+            for _ in range(15):
+                time.sleep(1)
+                current_url = self.page.url
+                # newpost가 아닌 글 페이지로 이동했으면 성공
+                if "/manage/newpost" not in current_url and current_url != pre_publish_url:
+                    break
 
             current_url = self.page.url
-            blog_url = self._blog_config.get("blog_url", "")
+            _log(f"발행 후 URL: {current_url}")
 
-            # 발행 후 리다이렉트된 URL 확인
-            if blog_url.replace("https://", "") in current_url and "/manage/newpost" not in current_url:
+            # 발행 후 글 페이지로 리다이렉트된 경우
+            if blog_url.replace("https://", "") in current_url and "/manage/newpost" not in current_url and "/manage/posts" not in current_url:
                 _log(f"발행 성공! URL: {current_url}")
                 return {"success": True, "url": current_url, "error": ""}
 
-            # 관리 페이지로 돌아간 경우 → 최신 글 URL 추출
-            if "/manage" in current_url:
-                try:
-                    self.page.goto(f"{blog_url}/manage/posts", wait_until="domcontentloaded", timeout=10000)
-                    time.sleep(2)
-                    first_post = self.page.query_selector('.list_post li:first-child a, .post_list a:first-child')
-                    if first_post:
-                        post_url = first_post.get_attribute("href")
-                        if post_url and not post_url.startswith("http"):
-                            post_url = f"{blog_url}{post_url}"
+            # 관리 페이지에 있으면 → 최신 글 확인
+            self.page.goto(f"{blog_url}/manage/posts", wait_until="domcontentloaded", timeout=10000)
+            time.sleep(2)
+
+            # 최신 글 제목이 현재 발행한 제목과 일치하는지 확인
+            try:
+                first_title_el = self.page.query_selector('.tit_post, .list_post .tit_cont, .post-item .title')
+                if first_title_el:
+                    first_title = first_title_el.text_content().strip()
+                    _log(f"최신 글 제목: {first_title}")
+
+                first_link = self.page.query_selector('.list_post a[href*="/manage/post/"], .post-item a')
+                if first_link:
+                    href = first_link.get_attribute("href") or ""
+                    # /manage/post/123 → /123
+                    import re as _re
+                    post_id_match = _re.search(r'/post/(\d+)', href)
+                    if post_id_match:
+                        post_url = f"{blog_url}/{post_id_match.group(1)}"
                         _log(f"발행 성공! URL: {post_url}")
-                        return {"success": True, "url": post_url or current_url, "error": ""}
-                except Exception:
-                    pass
+                        return {"success": True, "url": post_url, "error": ""}
+            except Exception as ex:
+                _log(f"최신 글 확인 오류: {ex}")
 
             _log(f"발행 완료 (URL 확인 불가): {current_url}")
             return {"success": True, "url": current_url, "error": ""}
 
         except Exception as e:
-            _log(f"발행 오류: {e}")
-            return {"success": False, "url": "", "error": str(e)}
+            err_msg = str(e).encode('ascii', errors='replace').decode('ascii')
+            _log(f"발행 오류: {err_msg}")
+            return {"success": False, "url": "", "error": err_msg}
+
+    def _upload_images(self, image_paths):
+        """
+        기본모드에서 이미지를 에디터에 업로드
+
+        Args:
+            image_paths: 로컬 이미지 파일 경로 리스트
+
+        Returns:
+            list: 업로드된 이미지의 티스토리 CDN URL 리스트
+        """
+        uploaded_urls = []
+        if not image_paths:
+            return uploaded_urls
+
+        for i, img_path in enumerate(image_paths):
+            if not os.path.exists(img_path):
+                _log(f"이미지 파일 없음: {img_path}")
+                continue
+
+            try:
+                _log(f"이미지 업로드 중... ({i+1}/{len(image_paths)})")
+
+                # 1. "첨부" 버튼 클릭 (보이는 것만)
+                attach_btns = self.page.locator('[aria-label="첨부"]')
+                clicked = False
+                for idx in range(attach_btns.count()):
+                    if attach_btns.nth(idx).is_visible():
+                        attach_btns.nth(idx).click()
+                        clicked = True
+                        break
+                if not clicked:
+                    _log("첨부 버튼을 찾을 수 없습니다")
+                    continue
+                time.sleep(1.5)
+
+                # 2. 드롭다운에서 "사진" 클릭 + file_chooser 대기
+                with self.page.expect_file_chooser(timeout=10000) as fc_info:
+                    self.page.evaluate("""() => {
+                        const all = document.querySelectorAll('*');
+                        for (const el of all) {
+                            if (el.textContent?.trim() === '사진'
+                                && el.offsetParent !== null
+                                && el.children.length === 0
+                                && el.getBoundingClientRect().height > 10
+                                && el.getBoundingClientRect().height < 50) {
+                                el.click();
+                                return;
+                            }
+                        }
+                    }""")
+
+                file_chooser = fc_info.value
+                file_chooser.set_files(img_path)
+                _log(f"이미지 파일 전달: {os.path.basename(img_path)}")
+
+                # 3. 업로드 완료 대기
+                time.sleep(3 + random.uniform(0.5, 1.5))
+
+                # 4. 업로드된 이미지 URL 추출 (에디터 내 img 태그에서)
+                new_url = self.page.evaluate(f"""(() => {{
+                    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {{
+                        const imgs = tinymce.activeEditor.dom.select('img');
+                        if (imgs.length > 0) {{
+                            const lastImg = imgs[imgs.length - 1];
+                            return lastImg.src || lastImg.getAttribute('src') || '';
+                        }}
+                    }}
+                    return '';
+                }})()""")
+
+                if new_url:
+                    uploaded_urls.append(new_url)
+                    _log(f"이미지 업로드 완료: {new_url[:80]}...")
+                else:
+                    _log(f"이미지 URL 추출 실패 (업로드는 됐을 수 있음)")
+
+                time.sleep(1 + random.uniform(0.3, 0.8))
+
+            except Exception as e:
+                _log(f"이미지 업로드 오류: {e}")
+
+        return uploaded_urls
 
     def close(self):
         """브라우저 종료"""
@@ -458,31 +666,59 @@ class TistoryPoster:
         title = override_title or preview.get("title", topic)
         raw_content = preview.get("raw_content", "")
 
-        # 2. 이미지 URL 수집
-        image_urls = []
+        # 2. 로컬 이미지 경로 수집
+        local_image_paths = []
         image_data = preview.get("image_data")
-        if image_data and image_data.get("images"):
-            image_urls = [img.get("path", img.get("url", ""))
-                         for img in image_data["images"] if img]
+        if image_data:
+            imgs_list = image_data.get("body_images") or image_data.get("images") or []
+            for img in imgs_list:
+                if img:
+                    path = img.get("url", img.get("path", ""))
+                    if path and os.path.exists(path):
+                        local_image_paths.append(path)
 
-        # 3. HTML 변환
-        self._progress(2, total_steps, "HTML 변환 중...")
-        html_content = markdown_to_html(
-            raw_content,
-            image_urls=image_urls,
-            persona_id=persona_id,
-        )
-
-        # 4. 로그인 + 발행
-        self._progress(3, total_steps, "티스토리 로그인 중...")
+        # 3. 브라우저 연결 + 로그인
+        self._progress(2, total_steps, "티스토리 로그인 중...")
+        self.connect()
         login_ok = self.login()
         if not login_ok:
             return {"success": False, "url": "", "error": "로그인 실패",
                     "title": title, "content": raw_content}
 
-        # 5. 글 발행
-        self._progress(4, total_steps, "티스토리 발행 중...")
+        # 4. 이미지 업로드 → CDN URL 획득
+        cdn_image_urls = []
+        if local_image_paths:
+            self._progress(3, total_steps, f"이미지 업로드 중... ({len(local_image_paths)}장)")
+            # 에디터 페이지로 이동 (이미지 업로드용)
+            editor_url = self._blog_config.get(
+                "editor_url",
+                f"{self._blog_config.get('blog_url', '')}/manage/newpost"
+            )
+            self.page.goto(editor_url, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(6)
+            # 팝업 제거
+            try:
+                self.page.evaluate("""() => {
+                    const alerts = document.querySelectorAll('.mce-notification');
+                    for (const a of alerts) { a.remove(); }
+                }""")
+            except Exception:
+                pass
+            time.sleep(1)
+            cdn_image_urls = self._upload_images(local_image_paths)
+            _log(f"CDN 이미지 {len(cdn_image_urls)}장 확보")
+
+        # 5. HTML 변환 (CDN URL 사용)
+        self._progress(4, total_steps, "HTML 변환 + 발행 중...")
+        html_content = markdown_to_html(
+            raw_content,
+            image_urls=cdn_image_urls if cdn_image_urls else [],
+            persona_id=persona_id,
+        )
+
+        # 6. 글 발행 (이미지 업로드한 같은 에디터 페이지에서 계속)
         tags = [topic] + topic.split() if topic else []
+        # 이미지 업로드 후 에디터 초기화 필요 (이미지만 올린 상태)
         result = self.post_human_like(
             title=title,
             html_content=html_content,
