@@ -275,34 +275,19 @@ class TistoryPoster:
             # 4~5. HTML 모드 전환 + 콘텐츠 삽입
             self._progress(4, total_steps, "HTML 모드 전환 + 콘텐츠 삽입 중...")
 
-            # TinyMCE iframe 내부에 HTML 직접 삽입 (가장 안정적)
+            # 기본모드(TinyMCE)에서 setContent + save + textarea 동기화
             inserted = self.page.evaluate(f"""
                 (() => {{
-                    // 방법 1: TinyMCE iframe 내부
-                    const iframes = document.querySelectorAll('iframe');
-                    for (const iframe of iframes) {{
-                        try {{
-                            const body = iframe.contentDocument?.body;
-                            if (body && body.contentEditable !== 'false') {{
-                                body.innerHTML = {json.dumps(html_content)};
-                                return 'iframe';
-                            }}
-                        }} catch(e) {{}}
-                    }}
-                    // 방법 2: contentEditable div
-                    const editors = document.querySelectorAll('[contenteditable="true"]');
-                    for (const ed of editors) {{
-                        if (ed.offsetHeight > 100) {{
-                            ed.innerHTML = {json.dumps(html_content)};
-                            return 'contenteditable';
-                        }}
-                    }}
-                    // 방법 3: #editor-tistory textarea (HTML 모드)
-                    const ta = document.querySelector('#editor-tistory');
-                    if (ta) {{
-                        ta.value = {json.dumps(html_content)};
-                        ta.dispatchEvent(new Event('input', {{bubbles: true}}));
-                        return 'textarea';
+                    const html = {json.dumps(html_content)};
+                    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {{
+                        const ed = tinymce.activeEditor;
+                        ed.setContent(html);
+                        ed.save();
+                        ed.fire('change');
+                        // textarea에도 직접 동기화
+                        const ta = document.querySelector('#editor-tistory');
+                        if (ta) ta.value = ed.getContent();
+                        return 'tinymce_save: ' + ed.getContent().length;
                     }}
                     return null;
                 }})()
@@ -338,33 +323,26 @@ class TistoryPoster:
                 _log("발행 레이어 열림")
                 time.sleep(2 + random.uniform(0.3, 0.8))
 
-                # 발행 레이어 내 최종 발행 버튼 클릭
-                final_btn = self.page.locator(
-                    'button#publish-btn, button:has-text("발행"), '
-                    'button:has-text("공개발행"), button.btn_ok, '
-                    'button.btn-publish'
-                ).first
+                # 공개 설정: #open20 (공개) 라디오 선택 (기본이 비공개임)
+                open_radio = self.page.locator('#open20')
+                if open_radio.count() > 0:
+                    open_radio.click()
+                    _log("공개 설정 완료")
+                    time.sleep(0.5)
+
+                # 최종 "공개로 발행" 버튼 클릭 (#publish-btn)
+                final_btn = self.page.locator('#publish-btn')
                 if final_btn.count() > 0:
                     final_btn.click()
-                    _log("최종 발행 버튼 클릭!")
+                    _log("공개로 발행 클릭!")
                     time.sleep(5 + random.uniform(1, 2))
                 else:
-                    # 레이어 내 버튼 구조 확인
-                    layer_btns = self.page.evaluate("""() => {
-                        const btns = document.querySelectorAll('button');
-                        return Array.from(btns).filter(b => b.offsetParent !== null)
-                            .map(b => b.textContent.trim().substring(0, 20) + '|' + b.id + '|' + b.className.substring(0, 30))
-                            .join(', ');
-                    }""")
-                    _log(f"레이어 버튼들: {layer_btns}")
-                    # 가시적인 "발행" 또는 "공개" 버튼 JS 클릭
+                    _log("publish-btn not found, trying fallback")
                     self.page.evaluate("""() => {
                         const btns = document.querySelectorAll('button');
                         for (const b of btns) {
-                            const t = b.textContent.trim();
-                            if (b.offsetParent && (t.includes('발행') || t.includes('공개') || t === '확인')) {
-                                b.click();
-                                return;
+                            if (b.offsetParent && b.textContent.includes('발행')) {
+                                b.click(); return;
                             }
                         }
                     }""")
