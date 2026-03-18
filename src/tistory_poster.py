@@ -69,6 +69,8 @@ class TistoryPoster:
             viewport={"width": 1280, "height": 900},
             locale="ko-KR",
         )
+        # confirm 다이얼로그 자동 승인 (HTML 모드 전환용)
+        self.context.add_init_script('window.confirm = function() { return true; };')
         pages = self.context.pages
         self.page = pages[0] if pages else self.context.new_page()
         _log("Chrome 실행 완료 (티스토리용 프로필)")
@@ -275,23 +277,36 @@ class TistoryPoster:
             # 4~5. HTML 모드 전환 + 콘텐츠 삽입
             self._progress(4, total_steps, "HTML 모드 전환 + 콘텐츠 삽입 중...")
 
-            # 기본모드(TinyMCE)에서 setContent + save + textarea 동기화
-            inserted = self.page.evaluate(f"""
-                (() => {{
-                    const html = {json.dumps(html_content)};
-                    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {{
-                        const ed = tinymce.activeEditor;
-                        ed.setContent(html);
-                        ed.save();
-                        ed.fire('change');
-                        // textarea에도 직접 동기화
-                        const ta = document.querySelector('#editor-tistory');
-                        if (ta) ta.value = ed.getContent();
-                        return 'tinymce_save: ' + ed.getContent().length;
-                    }}
-                    return null;
-                }})()
-            """)
+            # HTML 모드 전환 (confirm 자동 승인)
+            self.page.evaluate('window.confirm = function() { return true; };')
+            self.page.locator('#editor-mode-layer-btn-open').click()
+            time.sleep(1)
+            self.page.locator('#editor-mode-html').click()
+            time.sleep(3)
+            _log("HTML 모드 전환 완료")
+
+            # 클립보드 붙여넣기로 CodeMirror에 HTML 삽입
+            self.page.evaluate(f'navigator.clipboard.writeText({json.dumps(html_content)})')
+            time.sleep(1)
+            cm = self.page.locator('.CodeMirror.cm-s-tistory-html')
+            cm.click()
+            time.sleep(0.5)
+            self.page.keyboard.press('Control+a')
+            time.sleep(0.3)
+            self.page.keyboard.press('Control+v')
+            time.sleep(2)
+
+            # 삽입 확인
+            inserted = self.page.evaluate("""(() => {
+                const cms = document.querySelectorAll('.CodeMirror');
+                for (const cm of cms) {
+                    if (cm.CodeMirror && cm.offsetParent !== null) {
+                        const len = cm.CodeMirror.getValue().length;
+                        return len > 0 ? 'clipboard_paste: ' + len : null;
+                    }
+                }
+                return null;
+            })()""")
             _log(f"HTML 삽입 결과: {inserted}")
 
             if not inserted:
