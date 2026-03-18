@@ -8,16 +8,26 @@ import os
 import json
 from datetime import datetime
 
-from src.engine import generate_column_with_validation, generate_column, generate_hooking_title, replace_link_markers
+from src.engine import generate_column_with_validation, generate_column, generate_hooking_title, replace_link_markers, _get_recent_title_patterns
 from src.similarity import check_similarity
 from src.formatter import format_column_html, format_column_preview
+
+
+def _get_recent_endings(persona_id, count=10):
+    """최근 제목의 끝부분(어미) 추출 — 중복 회피용"""
+    recent = _get_recent_title_patterns(persona_id, count=count)
+    endings = []
+    for t in recent:
+        if len(t) >= 8:
+            endings.append(t[-8:])
+    return endings
 
 
 def generate_preview(topic, persona_id, persona_name,
                      model_id="claude-sonnet-4-6", temperature=0.7,
                      include_images=False, user_image_paths=None,
                      image_count=None, thumbnail_preset=None,
-                     auto_title=True, title_count=3):
+                     auto_title=True, title_count=3, platform=None):
     """
     키워드로 칼럼 생성 + 유사도 검증 + HTML 포맷팅
 
@@ -59,6 +69,7 @@ def generate_preview(topic, persona_id, persona_name,
         topic=topic,
         model_id=model_id,
         temperature=temperature,
+        platform=platform,
     )
 
     content = result["content"]
@@ -66,9 +77,19 @@ def generate_preview(topic, persona_id, persona_name,
     # 2.5. 링크 마커 치환
     content = replace_link_markers(content, persona_id)
 
-    # 3. 제목 결정: 후킹 제목 첫 번째 후보 > 본문 헤딩 > 키워드
+    # 3. 제목 결정: 최근 제목과 어미가 겹치지 않는 후보 우선 선택
     if title_candidates:
-        title = title_candidates[0]
+        title = title_candidates[0]  # 기본값
+        try:
+            recent = _get_recent_endings(persona_id)
+            if recent:
+                for candidate in title_candidates:
+                    ending = candidate[-8:] if len(candidate) >= 8 else candidate
+                    if not any(ending in r for r in recent):
+                        title = candidate
+                        break
+        except Exception:
+            pass
     else:
         title = topic
         for line in content.split("\n"):

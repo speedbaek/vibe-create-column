@@ -179,9 +179,7 @@ def create_interval_schedule(topics, persona_id, persona_name, blog_key,
 
 
 def execute_job(job, progress_callback=None):
-    """단일 작업 실행 (sync)"""
-    from src.naver_poster import NaverPoster
-
+    """단일 작업 실행 (sync) — 네이버/티스토리 플랫폼 자동 분기"""
     job_id = job["id"]
     update_job_status(job_id, "publishing")
     if progress_callback:
@@ -194,30 +192,51 @@ def execute_job(job, progress_callback=None):
         blog_conf = blogs.get(blog_key, {})
         blog_id_key = blog_conf.get("env_id_key", "NAVER_ID")
         blog_id = os.environ.get(blog_id_key, "")
+        platform = blog_conf.get("platform", "naver")
     except Exception:
         blog_id = os.environ.get("NAVER_ID", "")
+        platform = "naver"
 
     max_retries = 2
     last_error = None
 
     for attempt in range(1, max_retries + 1):
         try:
-            poster = NaverPoster(progress_callback=None, blog_key=blog_key)
-            try:
-                result = poster.post_human_like(
-                    topic=job["topic"],
-                    persona_id=job["persona_id"],
-                    persona_name=job["persona_name"],
-                    model_id=job.get("model_id", "claude-sonnet-4-6"),
-                    temperature=job.get("temperature", 0.7),
-                    include_images=job.get("include_images", True),
-                    image_count=job.get("image_count"),
-                    blog_id=blog_id,
-                    category_no=job.get("category_no"),
-                    override_title=job.get("override_title"),
-                )
-            finally:
-                poster.close()
+            if platform == "tistory":
+                from src.tistory_poster import TistoryPoster
+                poster = TistoryPoster(progress_callback=None, blog_key=blog_key)
+                try:
+                    poster.connect()
+                    result = poster.post_full_pipeline(
+                        topic=job["topic"],
+                        persona_id=job["persona_id"],
+                        persona_name=job["persona_name"],
+                        model_id=job.get("model_id", "claude-sonnet-4-6"),
+                        temperature=job.get("temperature", 0.7),
+                        include_images=job.get("include_images", True),
+                        image_count=job.get("image_count"),
+                        override_title=job.get("override_title"),
+                    )
+                finally:
+                    poster.close()
+            else:
+                from src.naver_poster import NaverPoster
+                poster = NaverPoster(progress_callback=None, blog_key=blog_key)
+                try:
+                    result = poster.post_human_like(
+                        topic=job["topic"],
+                        persona_id=job["persona_id"],
+                        persona_name=job["persona_name"],
+                        model_id=job.get("model_id", "claude-sonnet-4-6"),
+                        temperature=job.get("temperature", 0.7),
+                        include_images=job.get("include_images", True),
+                        image_count=job.get("image_count"),
+                        blog_id=blog_id,
+                        category_no=job.get("category_no"),
+                        override_title=job.get("override_title"),
+                    )
+                finally:
+                    poster.close()
 
             if result.get("success"):
                 break  # 성공하면 재시도 루프 탈출

@@ -302,7 +302,7 @@ def get_retriever_context(persona_id, topic=""):
     return _truncate_to_limit(full_context, MAX_CONTEXT_CHARS)
 
 
-def _build_prompt_text(persona_id, persona_name, topic, context_text):
+def _build_prompt_text(persona_id, persona_name, topic, context_text, platform=None):
     """전체 프롬프트를 문자열로 조립"""
     base = load_base_prompt()
     human_rules = load_human_style_rules()
@@ -329,14 +329,28 @@ def _build_prompt_text(persona_id, persona_name, topic, context_text):
     prompt_text = prompt_text.replace("{context}", context_text)
     prompt_text = prompt_text.replace("{topic}", topic)
 
+    # 티스토리용 유사도 회피 지시
+    if platform == "tistory":
+        prompt_text += """
+
+## 중요: 이 글은 티스토리 블로그용입니다.
+같은 주제의 네이버 블로그 글과 반드시 차별화되어야 합니다:
+- 글의 구조(소제목 순서, 개수)를 완전히 다르게 구성하세요.
+- 동일한 문장이나 표현을 사용하지 마세요.
+- 다른 관점이나 접근법으로 주제를 설명하세요.
+  (예: 네이버가 절차 중심이면 → 티스토리는 사례/비교 중심)
+- 도입부와 마무리를 완전히 다른 스타일로 작성하세요.
+- 검색엔진 유사도 검사에 걸리지 않도록 표현을 독립적으로 작성하세요.
+"""
+
     return prompt_text
 
 
-def generate_column(persona_id, persona_name, topic, model_id="claude-sonnet-4-6", temperature=0.7):
+def generate_column(persona_id, persona_name, topic, model_id="claude-sonnet-4-6", temperature=0.7, platform=None):
     """컬럼 생성 (비스트리밍)"""
     client = _get_client()
     context_text = get_retriever_context(persona_id, topic)
-    prompt_text = _build_prompt_text(persona_id, persona_name, topic, context_text)
+    prompt_text = _build_prompt_text(persona_id, persona_name, topic, context_text, platform=platform)
 
     message = client.messages.create(
         model=model_id,
@@ -370,7 +384,8 @@ def generate_column_stream(persona_id, persona_name, topic, model_id="claude-son
 
 def generate_column_with_validation(persona_id, persona_name, topic,
                                      model_id="claude-sonnet-4-6", temperature=0.7,
-                                     max_retries=3, similarity_threshold=0.3):
+                                     max_retries=3, similarity_threshold=0.3,
+                                     platform=None):
     """
     유사도 검증이 포함된 컬럼 생성.
     유사도가 높으면 자동으로 재생성합니다.
@@ -388,7 +403,7 @@ def generate_column_with_validation(persona_id, persona_name, topic,
     for attempt in range(1, max_retries + 1):
         # temperature를 시도마다 약간 올려서 다양성 확보
         temp = min(temperature + (attempt - 1) * 0.05, 1.0)
-        content = generate_column(persona_id, persona_name, topic, model_id, temp)
+        content = generate_column(persona_id, persona_name, topic, model_id, temp, platform=platform)
 
         sim_result = check_similarity(content, persona_id,
                                        doc_threshold=similarity_threshold)
@@ -443,22 +458,52 @@ def _get_sample_titles(persona_id, count=30):
     return sample
 
 
-def _get_recent_title_patterns(persona_id, count=5):
-    """최근 발행된 제목에서 사용된 패턴 추출 (중복 방지용)"""
-    jobs_path = "data/jobs.json"
+def _get_recent_title_patterns(persona_id, count=10):
+    """최근 발행된 제목에서 사용된 패턴 추출 (중복 방지용)
+
+    여러 소스에서 최근 제목을 수집:
+    1. outputs/schedules/jobs.json (스케줄러 발행)
+    2. outputs/{persona_id}/history.json (직접 발행)
+    """
     recent_titles = []
+
+    # 소스 1: 스케줄러 jobs.json
+    sched_path = "outputs/schedules/jobs.json"
     try:
-        with open(jobs_path, "r", encoding="utf-8") as f:
+        with open(sched_path, "r", encoding="utf-8") as f:
             jobs = json.load(f)
-        # 해당 페르소나의 최근 발행 제목
         for job in reversed(jobs):
-            if job.get("persona_id") == persona_id and job.get("title"):
-                recent_titles.append(job["title"])
-                if len(recent_titles) >= count:
-                    break
+            if (job.get("persona_id") == persona_id
+                and job.get("status") == "published"
+                and job.get("result_title")):
+                recent_titles.append(job["result_title"])
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-    return recent_titles
+
+    # 소스 2: 히스토리 파일
+    hist_path = f"outputs/{persona_id}/history.json"
+    try:
+        with open(hist_path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+        for entry in history:
+            title = entry.get("content", "")
+            if title and title not in recent_titles:
+                recent_titles.append(title)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # 레거시: data/jobs.json
+    try:
+        with open("data/jobs.json", "r", encoding="utf-8") as f:
+            jobs = json.load(f)
+        for job in reversed(jobs):
+            if job.get("persona_id") == persona_id and job.get("title"):
+                if job["title"] not in recent_titles:
+                    recent_titles.append(job["title"])
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    return recent_titles[:count]
 
 
 def generate_hooking_title(topic, persona_id="yun_ung_chae",
@@ -525,6 +570,8 @@ def generate_hooking_title(topic, persona_id="yun_ung_chae",
 4. AI가 쓴 느낌이 나는 표현은 절대 사용하지 마세요.
 5. 키워드를 제목 앞부분에 자연스럽게 배치하세요.
 6. 반드시 괄호강조형, 정보성짧은제목, 숫자리스트형, 비용임팩트형 중 최소 2개를 포함하세요.
+7. **제목 어미(끝부분) 중복 절대 금지**: "~해야 할 N가지", "~확인해야 할 N가지", "~알아야 할 N가지" 같은 동일한 어미 패턴이 2개 이상 나오면 안 됩니다. {count}개 제목의 끝 표현이 모두 달라야 합니다.
+8. 다양한 문장 종결: 의문형("~인가?"), 명사형("~총정리"), 경고형("~하면 안 되는 이유"), 비교형("~vs~"), 숫자형("~N가지") 등을 골고루 섞으세요.
 
 ## 출력 형식
 제목만 한 줄에 하나씩 출력하세요. 번호, 따옴표, 설명 없이 제목 텍스트만 출력합니다.

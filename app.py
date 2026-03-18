@@ -42,6 +42,22 @@ try:
 except ImportError:
     SCHEDULER_LOADED = False
 
+# ── 앱 시작 시 pending 작업이 있으면 스케줄러 자동 시작 ──
+# get_pending_jobs()는 시간 도래 건만 반환 → 미래 예약이 있어도 스케줄러 안 켜지는 버그
+# get_all_jobs()로 전체 pending 건 체크
+if SCHEDULER_LOADED and not is_scheduler_running():
+    try:
+        _all = get_all_jobs()
+        _any_pending = any(j.get("status") == "pending" for j in _all)
+        if _any_pending:
+            def _auto_sched_log(msg):
+                print(f"[AutoScheduler] {msg}")
+            start_scheduler(check_interval=30, log_callback=_auto_sched_log)
+            _cnt = sum(1 for j in _all if j.get("status") == "pending")
+            print(f"[AutoScheduler] 앱 시작 시 pending {_cnt}건 감지 → 스케줄러 자동 시작")
+    except Exception:
+        pass
+
 try:
     from src.image_handler import generate_blog_images, generate_thumbnail
     IMAGE_LOADED = True
@@ -513,8 +529,31 @@ with tab1:
             mode_label = {"human_like": "🧑 휴먼 시뮬레이션", "fast": "⚡ 원클릭"}
             with st.spinner(f"{mode_label.get(posting_mode, '')} 발행 진행 중... (최대 5~10분 소요)"):
 
-                if posting_mode == "human_like":
-                    # 휴먼 시뮬레이션 모드
+                _is_tistory = selected_blog.get("platform") == "tistory"
+
+                if _is_tistory:
+                    # 티스토리 발행
+                    def _do_tistory():
+                        from src.tistory_poster import TistoryPoster
+                        poster = TistoryPoster(progress_callback=log_progress, blog_key=selected_blog_key)
+                        try:
+                            poster.connect()
+                            return poster.post_full_pipeline(
+                                topic=oneclick_topic.strip(),
+                                persona_id=selected_persona_id,
+                                persona_name=selected_persona_name,
+                                model_id=selected_model,
+                                temperature=temperature,
+                                include_images=include_images,
+                                image_count=image_count if include_images else 0,
+                                override_title=override_title.strip() if override_title.strip() else None,
+                            )
+                        finally:
+                            poster.close()
+                    result = run_in_thread(_do_tistory)
+
+                elif posting_mode == "human_like":
+                    # 네이버 휴먼 시뮬레이션 모드
                     def _do_human_like():
                         from src.naver_poster import NaverPoster
                         poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
@@ -535,7 +574,7 @@ with tab1:
                     result = run_in_thread(_do_human_like)
 
                 else:
-                    # 원클릭 빠른 발행
+                    # 네이버 원클릭 빠른 발행
                     def _do_one_click():
                         from src.naver_poster import NaverPoster
                         poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
@@ -1061,7 +1100,14 @@ with tab2:
                         st.error(f"예약 실패 ({item['keyword']}): {e}")
 
                 if registered > 0:
-                    st.success(f"✅ {registered}건 예약 등록 완료! ({st.session_state.get('_sched_date', '')})")
+                    # 스케줄러 자동 시작
+                    def _smart_sched_log(msg):
+                        print(f"[SmartScheduler] {msg}")
+                    started = start_scheduler(check_interval=30, log_callback=_smart_sched_log)
+                    if started:
+                        st.success(f"✅ {registered}건 예약 등록 + 스케줄러 시작! ({st.session_state.get('_sched_date', '')})")
+                    else:
+                        st.success(f"✅ {registered}건 예약 등록 완료! (스케줄러 이미 실행 중) ({st.session_state.get('_sched_date', '')})")
                     st.session_state.smart_schedule = None
                     st.rerun()
 
@@ -1070,64 +1116,95 @@ with tab2:
         st.markdown("### 📋 예약 대기 현황")
 
         if SCHEDULER_LOADED:
+            # 자동 새로고침: 스케줄러 실행 중이면 10초마다 갱신
+            if is_scheduler_running():
+                st_autorefresh = None
+                try:
+                    from streamlit_autorefresh import st_autorefresh
+                except ImportError:
+                    pass
+                if st_autorefresh:
+                    st_autorefresh(interval=10000, limit=None, key="scheduler_refresh")
+
             all_jobs = get_all_jobs()
             pending_jobs = [j for j in all_jobs if j.get("status") == "pending"]
             publishing_jobs = [j for j in all_jobs if j.get("status") == "publishing"]
             published_jobs = [j for j in all_jobs if j.get("status") == "published"]
             failed_jobs = [j for j in all_jobs if j.get("status") == "failed"]
 
-            col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+            col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns([1, 1, 1, 1, 1])
             col_p1.metric("대기중", f"{len(pending_jobs)}건")
             col_p2.metric("발행중", f"{len(publishing_jobs)}건")
             col_p3.metric("완료", f"{len(published_jobs)}건")
             col_p4.metric("실패", f"{len(failed_jobs)}건")
+            if col_p5.button("🔄 새로고침", key="refresh_schedule_status"):
+                st.rerun()
 
-            if pending_jobs:
-                # 날짜+블로그별 그룹핑
-                from collections import defaultdict
-                groups = defaultdict(list)
-                for j in pending_jobs:
-                    sched_time = j.get("scheduled_time", "")
-                    date_part = sched_time.split(" ")[0] if " " in sched_time else "즉시"
-                    bk = j.get("blog_key", "")
-                    bconf = BLOG_CONFIG.get(bk, {})
-                    blog_name = bconf.get("display_name", bk)
-                    groups[(date_part, blog_name)].append(j)
+            # 전체 작업을 날짜+블로그별 그룹핑 (pending + publishing + published + failed 모두)
+            from collections import defaultdict
+            groups = defaultdict(list)
+            for j in all_jobs:
+                sched_time = j.get("scheduled_time", "")
+                date_part = sched_time.split(" ")[0] if " " in sched_time else "즉시"
+                bk = j.get("blog_key", "")
+                bconf = BLOG_CONFIG.get(bk, {})
+                blog_name = bconf.get("display_name", bk)
+                groups[(date_part, blog_name)].append(j)
 
+            if groups:
                 for (date_key, blog_name) in sorted(groups.keys()):
                     jobs_list = sorted(groups[(date_key, blog_name)], key=lambda x: x.get("scheduled_time", ""))
-                    count = len(jobs_list)
-                    status_label = "⏳ 대기중"
+                    total = len(jobs_list)
+                    done = sum(1 for j in jobs_list if j["status"] == "published")
+                    fail = sum(1 for j in jobs_list if j["status"] == "failed")
+                    running = sum(1 for j in jobs_list if j["status"] == "publishing")
+                    wait = sum(1 for j in jobs_list if j["status"] == "pending")
 
-                    with st.expander(f"📅 {date_key}  |  {blog_name}  |  {count}건  |  {status_label}"):
+                    # 그룹 상태 요약
+                    if done == total:
+                        group_status = "✅ 완료"
+                    elif fail > 0 and wait == 0 and running == 0:
+                        group_status = f"⚠️ {done}완료 / {fail}실패"
+                    elif running > 0:
+                        group_status = f"🔄 발행중 ({done}/{total})"
+                    else:
+                        group_status = f"⏳ 대기중 ({done}/{total})"
+
+                    with st.expander(f"📅 {date_key}  |  {blog_name}  |  {total}건  |  {group_status}"):
                         for j in jobs_list:
                             sched_time = j.get("scheduled_time", "")
                             time_part = sched_time.split(" ")[1][:5] if " " in sched_time else "즉시"
                             topic = j.get("topic", "")
+                            status = j.get("status", "pending")
 
-                            col_t, col_k, col_del = st.columns([1, 5, 0.5])
-                            col_t.write(f"`{time_part}`")
-                            col_k.write(topic)
-                            if col_del.button("❌", key=f"del_job_{j['id']}"):
-                                remove_job(j["id"])
-                                st.rerun()
+                            if status == "published":
+                                url = j.get("result_url", "")
+                                title = j.get("result_title", topic)
+                                if url:
+                                    st.markdown(f"`{time_part}` ✅ **{title}** — [발행글 보기]({url})")
+                                else:
+                                    st.markdown(f"`{time_part}` ✅ **{title}**")
+                            elif status == "failed":
+                                err = j.get("error", "알 수 없는 오류")[:50]
+                                st.markdown(f"`{time_part}` ❌ **{topic}** — {err}")
+                            elif status == "publishing":
+                                st.markdown(f"`{time_part}` 🔄 **{topic}** — 발행 중...")
+                            else:
+                                col_t, col_k, col_del = st.columns([1, 5, 0.5])
+                                col_t.write(f"`{time_part}`")
+                                col_k.write(f"⏳ {topic}")
+                                if col_del.button("❌", key=f"del_job_{j['id']}"):
+                                    remove_job(j["id"])
+                                    st.rerun()
 
-            elif not published_jobs and not failed_jobs:
+            else:
                 st.info("예약된 작업이 없습니다. 위에서 키워드 미리보기 → 예약 등록을 진행해보세요.")
 
-            # 완료/실패 내역 (접힘)
+            # 완료 내역 정리 버튼
             if published_jobs or failed_jobs:
-                with st.expander(f"최근 발행 내역 ({len(published_jobs)}건 완료 / {len(failed_jobs)}건 실패)"):
-                    for j in sorted(published_jobs + failed_jobs, key=lambda x: x.get("published_at", x.get("created_at", "")), reverse=True)[:10]:
-                        status_icon = "✅" if j["status"] == "published" else "❌"
-                        url = j.get("result_url", "")
-                        title = j.get("result_title", j.get("topic", ""))
-                        st.write(f"{status_icon} **{title}** {'— [링크](' + url + ')' if url else ''}")
-
-                    if len(published_jobs) > 0:
-                        if st.button("완료 내역 정리", key="clear_completed_smart"):
-                            clear_completed()
-                            st.rerun()
+                if st.button("🗑️ 완료/실패 내역 정리", key="clear_completed_smart"):
+                    clear_completed()
+                    st.rerun()
         else:
             st.warning("스케줄러 모듈이 로드되지 않았습니다.")
 

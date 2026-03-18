@@ -19,6 +19,28 @@
       "default_persona": "teheran_official",
       "personas": ["teheran_official"],
       "description": "특허법인 테헤란 공식 법인 블로그 (지식재산연구소)"
+    },
+    "tistory_yun": {
+      "display_name": "윤변리사 티스토리",
+      "platform": "tistory",
+      "blog_id": "ideas23214",
+      "blog_url": "https://ideas23214.tistory.com",
+      "manage_url": "https://ideas23214.tistory.com/manage",
+      "editor_url": "https://ideas23214.tistory.com/manage/newpost",
+      "env_id_key": "KAKAO_ID",
+      "env_pw_key": "KAKAO_PW",
+      "default_persona": "yun_ung_chae",
+      "personas": ["yun_ung_chae"],
+      "description": "윤웅채 변리사 티스토리 블로그 (네이버와 차별화된 콘텐츠)",
+      "categories": {
+        "특허 스토리": ["특허", "발명", "명세서", "청구항", "심사", "BM특허", "실용신안"],
+        "상표 스토리": ["상표", "브랜드", "상호", "네이밍", "상표출원", "상표권"],
+        "디자인 스토리": ["디자인", "외관", "형상", "디자인보호", "디자인권"],
+        "심판.소송.분쟁 스토리": ["분쟁", "소송", "침해", "무효심판", "취소심판", "경고장"],
+        "해외 스토리": ["해외", "PCT", "마드리드", "미국특허", "중국특허", "국제출원"],
+        "기타 다양한 스토리": ["스타트업", "창업", "IP전략", "지식재산"]
+      },
+      "default_category": "기타 다양한 스토리"
     }
   },
   "_guide": {

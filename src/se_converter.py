@@ -427,11 +427,38 @@ def markdown_to_se_components(text, image_urls=None, persona_id=None):
     lines = text.split("\n")
     components = []
     current_paragraphs = []
-    highlight_count = 0  # 하이라이트 카운터
     # 이미지가 있어도 소제목 텍스트(quotation)는 항상 표시 (SEO 상위노출 위해 텍스트 필수)
     _skip_heading_quote = False
     # teheran_official: 하이라이트를 이모지+볼드 방식으로 (노란 배경 대신)
     _use_emoji_highlight = persona_id in ("teheran_official",)
+
+    # ── 하이라이트 골고루 분산 배치 ──
+    # 1단계: 하이라이트 가능한 일반 텍스트 줄의 인덱스 수집
+    _highlight_candidate_indices = []
+    for _i, _line in enumerate(lines):
+        _s = _line.strip()
+        # 소제목, 빈줄, 리스트, URL, 따옴표 등은 제외 — 일반 텍스트만
+        if (not _s or _s.startswith("#") or _s.startswith("- ") or _s.startswith("* ")
+            or _s.startswith("http://") or _s.startswith("https://")
+            or _s.startswith("---")
+            or (_s.startswith("<") and _s.endswith(">") and len(_s) < 50)
+            or ((_s.startswith('"') and _s.endswith('"'))
+                or (_s.startswith('\u201c') and _s.endswith('\u201d')))
+            or re.match(r'^\d+\.\s', _s)):
+            continue
+        if _should_highlight(_s):
+            _highlight_candidate_indices.append(_i)
+
+    # 2단계: 후보 중에서 MAX개를 골고루 선택 (앞쪽 치우침 방지)
+    _highlight_selected = set()
+    if len(_highlight_candidate_indices) <= HIGHLIGHT_MAX:
+        _highlight_selected = set(_highlight_candidate_indices)
+    else:
+        # 균등 간격으로 선택
+        step = len(_highlight_candidate_indices) / HIGHLIGHT_MAX
+        for _j in range(HIGHLIGHT_MAX):
+            idx = int(_j * step)
+            _highlight_selected.add(_highlight_candidate_indices[idx])
 
     # --- 이미지 배치 계산: 소제목(##) 앞에 1장씩 (순서 보장) ---
     heading_line_indices = []
@@ -569,13 +596,12 @@ def markdown_to_se_components(text, image_urls=None, persona_id=None):
             current_paragraphs.append(_paragraph(nodes))
             continue
 
-        # 일반 텍스트 + 하이라이트
-        if highlight_count < HIGHLIGHT_MAX and _should_highlight(stripped):
+        # 일반 텍스트 + 하이라이트 (골고루 분산 적용)
+        if line_idx in _highlight_selected:
             if _use_emoji_highlight:
                 nodes = _parse_inline_corporate_highlight(stripped)
             else:
                 nodes = _parse_inline_highlight(stripped)
-            highlight_count += 1
         else:
             nodes = _parse_inline(stripped)
         current_paragraphs.append(_paragraph(nodes))
