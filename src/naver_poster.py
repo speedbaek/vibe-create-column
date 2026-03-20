@@ -228,11 +228,21 @@ class NaverPoster:
         if "nidlogin" in self.page.url or "login" in self.page.url:
             raise RuntimeError("에디터 접근 실패 - 로그인 필요")
 
-        # SmartEditor 로드 대기
-        self.page.wait_for_function(
-            f"() => typeof SmartEditor !== 'undefined' && SmartEditor._editors && SmartEditor._editors.{EDITOR_KEY}",
-            timeout=20000,
-        )
+        # SmartEditor 로드 대기 (45초 — 네트워크 느릴 때 대비)
+        try:
+            self.page.wait_for_function(
+                f"() => typeof SmartEditor !== 'undefined' && SmartEditor._editors && SmartEditor._editors.{EDITOR_KEY}",
+                timeout=45000,
+            )
+        except Exception as e:
+            _log(f"SmartEditor 1차 로드 실패 ({e}), 페이지 새로고침 후 재시도...")
+            self.page.reload()
+            self.page.wait_for_load_state("networkidle")
+            time.sleep(5)
+            self.page.wait_for_function(
+                f"() => typeof SmartEditor !== 'undefined' && SmartEditor._editors && SmartEditor._editors.{EDITOR_KEY}",
+                timeout=45000,
+            )
         time.sleep(3)
 
         # 팝업 제거

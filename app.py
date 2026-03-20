@@ -211,7 +211,7 @@ def run_in_thread(func, *args, **kwargs):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_worker)
-        return future.result(timeout=600)  # 최대 10분
+        return future.result(timeout=1200)  # 최대 20분 (글생성+이미지+업로드+발행)
 
 
 # -- 블로그 설정 로드 --

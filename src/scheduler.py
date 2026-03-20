@@ -3,6 +3,7 @@
 - JSON 파일 기반 작업 큐
 - 백그라운드 스레드로 예약 시간 도래 시 자동 발행
 - Playwright sync API 사용
+- Atomic write + 백업으로 데이터 유실 방지
 """
 
 import os
@@ -11,15 +12,19 @@ import threading
 import time
 import sys
 import asyncio
+import tempfile
+import shutil
 from datetime import datetime, timedelta
 
 
 SCHEDULE_DIR = "outputs/schedules"
 SCHEDULE_FILE = os.path.join(SCHEDULE_DIR, "jobs.json")
+BACKUP_FILE = os.path.join(SCHEDULE_DIR, "jobs.backup.json")
 
 _scheduler_thread = None
 _scheduler_running = False
 _scheduler_lock = threading.Lock()
+_file_lock = threading.Lock()
 
 
 def _ensure_dir():
@@ -27,20 +32,74 @@ def _ensure_dir():
 
 
 def load_jobs():
+    """작업 목록 로드 — 메인 파일 실패 시 백업에서 복구"""
     _ensure_dir()
-    if not os.path.exists(SCHEDULE_FILE):
+    with _file_lock:
+        # 1차: 메인 파일 시도
+        data = _try_read(SCHEDULE_FILE)
+        if data is not None:
+            return data
+
+        # 2차: 백업 파일에서 복구
+        data = _try_read(BACKUP_FILE)
+        if data is not None:
+            print(f"[scheduler] jobs.json 손상 → 백업에서 {len(data)}건 복구")
+            _atomic_write(SCHEDULE_FILE, data)
+            return data
+
         return []
+
+
+def _try_read(path):
+    """JSON 파일 읽기 시도. 실패 시 None 반환"""
+    if not os.path.exists(path):
+        return None
     try:
-        with open(SCHEDULE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return []
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return None
+            data = json.loads(content)
+            if isinstance(data, list):
+                return data
+            return None
+    except (json.JSONDecodeError, IOError, OSError):
+        return None
+
+
+def _atomic_write(path, data):
+    """임시 파일에 쓴 뒤 rename — 중간 크래시에도 파일이 깨지지 않음"""
+    _ensure_dir()
+    fd, tmp_path = tempfile.mkstemp(
+        dir=SCHEDULE_DIR, suffix=".tmp", prefix="jobs_"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        # Windows: os.rename 실패 가능 → shutil.move 사용
+        shutil.move(tmp_path, path)
+    except Exception:
+        # 임시 파일 정리
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def save_jobs(jobs):
-    _ensure_dir()
-    with open(SCHEDULE_FILE, "w", encoding="utf-8") as f:
-        json.dump(jobs, f, ensure_ascii=False, indent=2)
+    """작업 목록 저장 — atomic write + 백업"""
+    with _file_lock:
+        # 기존 파일이 유효하면 백업 생성
+        if os.path.exists(SCHEDULE_FILE):
+            existing = _try_read(SCHEDULE_FILE)
+            if existing is not None and len(existing) > 0:
+                _atomic_write(BACKUP_FILE, existing)
+
+        # atomic write로 메인 파일 저장
+        _atomic_write(SCHEDULE_FILE, jobs)
 
 
 def _next_id():

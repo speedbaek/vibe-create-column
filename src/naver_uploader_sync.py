@@ -54,7 +54,11 @@ def upload_images_to_naver(page, blog_id, local_image_paths):
         time.sleep(1)
 
         # 현재 이미지 수 기록 (업로드 전)
-        before_count = _count_images(page)
+        try:
+            before_count = _count_images(page)
+        except Exception as e:
+            _log(f"  이미지 수 확인 실패: {e}, 0으로 가정")
+            before_count = 0
         _log(f"  업로드 전 이미지 수: {before_count}")
 
         # 이미지 버튼 클릭
@@ -97,14 +101,20 @@ def upload_images_to_naver(page, blog_id, local_image_paths):
         file_input.set_input_files(file_path)
         _log("  파일 설정 완료, CDN 업로드 대기...")
 
-        # CDN URL 감지 대기 (최대 30초)
+        # CDN URL 감지 대기 (최대 45초)
         found_new = None
-        for sec in range(30):
+        for sec in range(45):
             time.sleep(1)
-            current_count = _count_images(page)
+            try:
+                current_count = _count_images(page)
+            except Exception:
+                current_count = before_count  # JS 평가 실패 시 이전 값 유지
 
             if current_count > before_count:
-                found_new = _get_last_image_component(page)
+                try:
+                    found_new = _get_last_image_component(page)
+                except Exception:
+                    found_new = None
                 if found_new:
                     _log(f"  CDN 감지! ({sec+1}초) src={found_new.get('src', '')[:80]}...")
                     break
