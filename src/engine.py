@@ -23,7 +23,11 @@ PERSONAS_DIR = "config/personas"
 PERSONA_DB_DIR = "persona_db"
 
 # 컨텍스트 토큰 예산 (한국어 글자 ≈ 2-3 토큰)
-MAX_CONTEXT_CHARS = 30000
+# 20,000자 ≈ 과거 글 4-5편 분량 (퀄리티 유지하면서 비용 33% 절감)
+MAX_CONTEXT_CHARS = 20000
+
+# 제목 생성용 경량 모델 (비용 90% 절감, 퀄리티 차이 없음)
+TITLE_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _get_client():
@@ -630,8 +634,12 @@ def generate_hooking_title(topic, persona_id="yun_ung_chae",
 
 위 키워드에 대한 블로그 제목을 {count}개 생성하세요."""
 
+    # 제목 생성은 Haiku로 충분 (비용 90% 절감, 퀄리티 유지)
+    title_model = TITLE_MODEL
+    print(f"[engine] 제목 생성 모델: {title_model} (비용 절감)")
+
     message = client.messages.create(
-        model=model_id,
+        model=title_model,
         max_tokens=500,
         temperature=0.9,
         system=[
