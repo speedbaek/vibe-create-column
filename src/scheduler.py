@@ -12,9 +12,9 @@ import subprocess
 import threading
 import time
 import sys
-import asyncio
 import tempfile
 import shutil
+from collections import Counter
 from datetime import datetime, timedelta
 
 SCHEDULE_DIR = "outputs/schedules"
@@ -102,8 +102,8 @@ def save_jobs(jobs):
         _atomic_write(SCHEDULE_FILE, jobs)
 
 
-def _next_id():
-    jobs = load_jobs()
+def _next_id(jobs):
+    """이미 로드된 jobs 리스트에서 다음 ID 계산 (중복 load_jobs 방지)"""
     if not jobs:
         return 1
     return max(j.get("id", 0) for j in jobs) + 1
@@ -125,7 +125,7 @@ def add_job(topic, persona_id, persona_name, blog_key,
     """
     jobs = load_jobs()
     job = {
-        "id": _next_id(),
+        "id": _next_id(jobs),
         "topic": topic,
         "persona_id": persona_id,
         "persona_name": persona_name,
@@ -154,6 +154,7 @@ def add_job(topic, persona_id, persona_name, blog_key,
 
 def update_job_status(job_id, status, result_url=None, result_title=None, error=None):
     jobs = load_jobs()
+    updated = False
     for job in jobs:
         if job["id"] == job_id:
             job["status"] = status
@@ -165,8 +166,10 @@ def update_job_status(job_id, status, result_url=None, result_title=None, error=
                 job["error"] = error
             if status == "published":
                 job["published_at"] = datetime.now().isoformat()
+            updated = True
             break
-    save_jobs(jobs)
+    if updated:
+        save_jobs(jobs)
 
 
 def get_pending_jobs():
@@ -525,26 +528,24 @@ def is_scheduler_running():
 
 def get_scheduler_status():
     jobs = load_jobs()
-    pending_jobs = [j for j in jobs if j["status"] == "pending"]
-    published_jobs = [j for j in jobs if j["status"] == "published"]
-    failed_jobs = [j for j in jobs if j["status"] == "failed"]
-    publishing_jobs = [j for j in jobs if j["status"] == "publishing"]
+    counts = Counter(j.get("status", "pending") for j in jobs)
     next_time = None
-    for j in pending_jobs:
-        st = j.get("scheduled_time")
-        if st:
-            try:
-                t = datetime.fromisoformat(st)
-                if next_time is None or t < next_time:
-                    next_time = t
-            except (ValueError, TypeError):
-                pass
+    for j in jobs:
+        if j.get("status") == "pending":
+            st = j.get("scheduled_time")
+            if st:
+                try:
+                    t = datetime.fromisoformat(st)
+                    if next_time is None or t < next_time:
+                        next_time = t
+                except (ValueError, TypeError):
+                    pass
     return {
         "running": _scheduler_running,
         "total": len(jobs),
-        "pending": len(pending_jobs),
-        "publishing": len(publishing_jobs),
-        "published": len(published_jobs),
-        "failed": len(failed_jobs),
+        "pending": counts.get("pending", 0),
+        "publishing": counts.get("publishing", 0),
+        "published": counts.get("published", 0),
+        "failed": counts.get("failed", 0),
         "next_scheduled": next_time.isoformat() if next_time else None,
     }

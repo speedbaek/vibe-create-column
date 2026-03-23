@@ -33,10 +33,8 @@ def _get_blog_config(blog_key):
 
 
 def _log(msg):
-    try:
-        print(f"[TistoryPoster] {msg}")
-    except UnicodeEncodeError:
-        print(f"[TistoryPoster] {msg.encode('utf-8', errors='replace').decode('utf-8')}")
+    from src.log_utils import safe_log
+    safe_log("TistoryPoster", msg)
 
 
 class TistoryPoster:

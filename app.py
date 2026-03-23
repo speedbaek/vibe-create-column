@@ -216,43 +216,9 @@ def run_in_thread(func, *args, **kwargs):
 
 
 def run_in_subprocess(job_dict):
-    """즉시발행을 subprocess로 격리 실행 (asyncio 충돌 방지)
-    스케줄러와 동일한 job_runner.py 사용"""
-    import subprocess as sp
-
-    runner_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "job_runner.py")
-    job_json = json.dumps(job_dict, ensure_ascii=False)
-
-    env = os.environ.copy()
-    env["PYTHONIOENCODING"] = "utf-8"
-    env["PYTHONUTF8"] = "1"
-
-    proc = sp.run(
-        [sys.executable, "-X", "utf8", runner_path],
-        input=job_json,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        cwd=os.path.dirname(os.path.abspath(__file__)),
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-    )
-
-    # stdout 마지막 줄에서 JSON 결과 파싱
-    stdout_lines = proc.stdout.strip().split("\n") if proc.stdout.strip() else []
-
-    if proc.returncode != 0:
-        stderr_msg = proc.stderr.strip()[-500:] if proc.stderr else "unknown"
-        return {"success": False, "error": f"subprocess failed: {stderr_msg}"}
-
-    for line in reversed(stdout_lines):
-        try:
-            return json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-
-    return {"success": False, "error": f"결과 파싱 실패"}
+    """즉시발행을 subprocess로 격리 실행 — 스케줄러의 _run_job_subprocess 재사용"""
+    from src.scheduler import _run_job_subprocess
+    return _run_job_subprocess(job_dict)
 
 
 # -- 블로그 설정 로드 --
