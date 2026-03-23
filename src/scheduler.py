@@ -242,6 +242,10 @@ def _run_job_subprocess(job):
     runner_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "job_runner.py")
     job_json = json.dumps(job, ensure_ascii=False)
 
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+
     proc = subprocess.run(
         [sys.executable, runner_path],
         input=job_json,
@@ -249,6 +253,9 @@ def _run_job_subprocess(job):
         text=True,
         timeout=600,  # 10분 타임아웃
         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        encoding="utf-8",
+        errors="replace",
+        env=env,
     )
 
     # stdout 마지막 줄이 결과 JSON
