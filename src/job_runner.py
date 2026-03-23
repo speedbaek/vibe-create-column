@@ -7,12 +7,20 @@
 import sys
 import os
 import json
+import io
 
-# Windows cp949 인코딩 오류 방지 — 최상단에서 UTF-8 강제 설정
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-if sys.stderr.encoding != 'utf-8':
-    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+# Windows cp949 인코딩 오류 방지 — stdout/stderr를 UTF-8로 강제 교체
+# subprocess 파이프 모드에서도 확실하게 동작하도록 io.TextIOWrapper 사용
+try:
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    if hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+except Exception:
+    pass
+
+os.environ["PYTHONIOENCODING"] = "utf-8"
+os.environ["PYTHONUTF8"] = "1"
 
 # 프로젝트 루트를 path에 추가
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

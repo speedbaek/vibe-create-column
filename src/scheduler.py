@@ -289,39 +289,32 @@ def execute_job(job, progress_callback=None):
     if progress_callback:
         progress_callback(job_id, "publishing", f"발행 중: {job['topic'][:30]}")
 
-    max_retries = 2
-    last_error = None
+    # ── 중복 발행 방지: 이미 같은 키워드가 발행됐는지 확인 ──
+    try:
+        all_jobs = load_jobs()
+        topic = job.get("topic", "")
+        blog_key = job.get("blog_key", "")
+        already_published = any(
+            j.get("topic") == topic
+            and j.get("blog_key") == blog_key
+            and j.get("status") == "published"
+            and j.get("id") != job_id
+            for j in all_jobs
+        )
+        if already_published:
+            print(f"[scheduler] ⚠️ 중복 발행 방지: '{topic}' ({blog_key}) 이미 발행됨 → 스킵")
+            update_job_status(job_id, "published", error="중복 방지 스킵 (이미 발행됨)")
+            return {"job_id": job_id, "success": True, "skipped": True}
+    except Exception as e:
+        print(f"[scheduler] 중복 체크 실패 (계속 진행): {e}")
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            result = _run_job_subprocess(job)
-
-            if result.get("success"):
-                break
-            else:
-                last_error = result.get("error", "발행 실패")
-                if attempt < max_retries:
-                    print(f"[scheduler] 발행 실패 (시도 {attempt}/{max_retries}), 30초 후 재시도: {last_error}")
-                    time.sleep(30)
-                    continue
-        except subprocess.TimeoutExpired:
-            last_error = "작업 시간 초과 (10분)"
-            if attempt < max_retries:
-                print(f"[scheduler] 타임아웃 (시도 {attempt}/{max_retries}), 30초 후 재시도")
-                time.sleep(30)
-                continue
-            else:
-                result = {"success": False, "error": last_error}
-                break
-        except Exception as e:
-            last_error = f"{type(e).__name__}: {e}"
-            if attempt < max_retries:
-                print(f"[scheduler] 오류 (시도 {attempt}/{max_retries}), 30초 후 재시도: {last_error}")
-                time.sleep(30)
-                continue
-            else:
-                result = {"success": False, "error": last_error}
-                break
+    # ── 발행 실행 (재시도 없음 — 중복 발행 방지) ──
+    try:
+        result = _run_job_subprocess(job)
+    except subprocess.TimeoutExpired:
+        result = {"success": False, "error": "작업 시간 초과 (10분)"}
+    except Exception as e:
+        result = {"success": False, "error": f"{type(e).__name__}: {e}"}
 
     # ── 결과 처리 ──
     if result.get("success"):
