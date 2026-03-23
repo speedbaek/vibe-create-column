@@ -270,7 +270,7 @@ def _run_job_subprocess(job):
     env["PYTHONUTF8"] = "1"
 
     proc = subprocess.run(
-        [sys.executable, runner_path],
+        [sys.executable, "-X", "utf8", runner_path],
         input=job_json,
         capture_output=True,
         text=True,

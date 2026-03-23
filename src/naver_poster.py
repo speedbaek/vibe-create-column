@@ -42,7 +42,14 @@ def _get_pw_user_data(blog_key=None):
 
 
 def _log(msg):
-    print(f"[NaverPoster] {msg}")
+    try:
+        print(f"[NaverPoster] {msg}")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # cp949 인코딩 환경에서도 안전하게 출력
+        try:
+            print(f"[NaverPoster] {msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace')}")
+        except Exception:
+            pass
 
 
 class NaverPoster:
