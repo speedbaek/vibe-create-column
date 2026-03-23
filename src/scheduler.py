@@ -174,9 +174,27 @@ def get_pending_jobs():
     jobs = load_jobs()
     now = datetime.now()
     pending = []
+    stale_fixed = False
+
     for job in jobs:
+        # ── publishing 상태가 15분 이상이면 failed로 전환 (좀비 방지) ──
+        if job["status"] == "publishing":
+            published_at = job.get("published_at") or job.get("scheduled_time")
+            if published_at:
+                try:
+                    start_time = datetime.fromisoformat(published_at)
+                    if (now - start_time).total_seconds() > 900:  # 15분
+                        print(f"[scheduler] ⚠️ 좀비 작업 정리: {job.get('topic', '')} (15분 초과 publishing → failed)")
+                        job["status"] = "failed"
+                        job["error"] = "발행 시간 초과 (15분 이상 publishing 상태)"
+                        stale_fixed = True
+                except (ValueError, TypeError):
+                    pass
+            continue
+
         if job["status"] != "pending":
             continue
+
         st = job.get("scheduled_time")
         if st:
             try:
@@ -187,6 +205,11 @@ def get_pending_jobs():
                 pending.append(job)
         else:
             pending.append(job)
+
+    # 좀비 작업 정리된 경우 저장
+    if stale_fixed:
+        save_jobs(jobs)
+
     pending.sort(key=lambda j: j.get("scheduled_time") or "")
     return pending
 
@@ -289,20 +312,20 @@ def execute_job(job, progress_callback=None):
     if progress_callback:
         progress_callback(job_id, "publishing", f"발행 중: {job['topic'][:30]}")
 
-    # ── 중복 발행 방지: 이미 같은 키워드가 발행됐는지 확인 ──
+    # ── 중복 발행 방지: 이미 같은 키워드가 발행됐거나 발행 중인지 확인 ──
     try:
         all_jobs = load_jobs()
         topic = job.get("topic", "")
         blog_key = job.get("blog_key", "")
-        already_published = any(
+        already_done = any(
             j.get("topic") == topic
             and j.get("blog_key") == blog_key
-            and j.get("status") == "published"
+            and j.get("status") in ("published", "publishing")
             and j.get("id") != job_id
             for j in all_jobs
         )
-        if already_published:
-            print(f"[scheduler] ⚠️ 중복 발행 방지: '{topic}' ({blog_key}) 이미 발행됨 → 스킵")
+        if already_done:
+            print(f"[scheduler] ⚠️ 중복 발행 방지: '{topic}' ({blog_key}) 이미 발행됨/발행중 → 스킵")
             update_job_status(job_id, "published", error="중복 방지 스킵 (이미 발행됨)")
             return {"job_id": job_id, "success": True, "skipped": True}
     except Exception as e:
@@ -315,6 +338,10 @@ def execute_job(job, progress_callback=None):
         result = {"success": False, "error": "작업 시간 초과 (10분)"}
     except Exception as e:
         result = {"success": False, "error": f"{type(e).__name__}: {e}"}
+
+    # ── 안전장치: result가 None이면 실패 처리 (영원히 publishing 방지) ──
+    if result is None:
+        result = {"success": False, "error": "subprocess 결과 없음"}
 
     # ── 결과 처리 ──
     if result.get("success"):
