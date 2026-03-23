@@ -15,6 +15,7 @@ import sys
 import asyncio
 import tempfile
 import shutil
+from datetime import datetime, timedelta
 
 SCHEDULE_DIR = "outputs/schedules"
 SCHEDULE_FILE = os.path.join(SCHEDULE_DIR, "jobs.json")
@@ -377,16 +378,27 @@ def execute_job(job, progress_callback=None):
 
 
 def execute_pending_jobs(progress_callback=None):
-    """대기 중인 예약 작업 모두 실행 (sync)"""
+    """대기 중인 예약 작업 순차 실행 (sync, 1건씩)"""
     pending = get_pending_jobs()
     if not pending:
         return []
     results = []
+    last_blog = None
     for job in pending:
+        current_blog = job.get("blog_key", "")
+
+        # 블로그 전환 시 추가 대기
+        if last_blog and last_blog != current_blog:
+            print(f"[scheduler] 블로그 전환 대기: {last_blog} → {current_blog} (30초)")
+            time.sleep(30)
+
         result = execute_job(job, progress_callback)
         results.append(result)
+        last_blog = current_blog
+
         if job != pending[-1]:
-            time.sleep(10)
+            # 같은 블로그면 60초, 다음이 다른 블로그면 30초
+            time.sleep(60)
     return results
 
 
@@ -395,7 +407,15 @@ def execute_pending_jobs(progress_callback=None):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _scheduler_loop(check_interval=30, log_callback=None):
+    """
+    백그라운드 스케줄러 루프
+    - 한 번에 1건만 실행 (순차 처리)
+    - 같은 블로그 연속 발행 시 60초 대기
+    - 다른 블로그 전환 시 30초 대기
+    """
     global _scheduler_running
+    last_blog_key = None
+
     if log_callback:
         log_callback("scheduler_started")
     while _scheduler_running:
@@ -404,17 +424,42 @@ def _scheduler_loop(check_interval=30, log_callback=None):
             if pending:
                 if log_callback:
                     log_callback(f"found_{len(pending)}_jobs")
-                for job in pending:
-                    if not _scheduler_running:
-                        break
+
+                # 시간순 정렬 후 1건만 실행 (가장 먼저 도래한 작업)
+                job = pending[0]
+
+                if not _scheduler_running:
+                    break
+
+                current_blog = job.get("blog_key", "")
+
+                # 블로그 전환 시 추가 대기 (동시 실행 방지)
+                if last_blog_key and last_blog_key != current_blog:
                     if log_callback:
-                        log_callback(f"job_{job['id']}_start")
-                    result = execute_job(job)
-                    if log_callback:
-                        status = "ok" if result.get("success") else "fail"
-                        log_callback(f"job_{job['id']}_{status}")
-                    if _scheduler_running:
-                        time.sleep(10)
+                        log_callback(f"blog_switch_{last_blog_key}_to_{current_blog}_wait_30s")
+                    for _ in range(30):
+                        if not _scheduler_running:
+                            break
+                        time.sleep(1)
+
+                if log_callback:
+                    log_callback(f"job_{job['id']}_start_{current_blog}")
+
+                result = execute_job(job)
+
+                if log_callback:
+                    status = "ok" if result.get("success") else "fail"
+                    log_callback(f"job_{job['id']}_{status}")
+
+                last_blog_key = current_blog
+
+                # 발행 후 대기 (같은 블로그 연속 방지 + 브라우저 정리 시간)
+                if _scheduler_running:
+                    wait_sec = 60 if result.get("success") else 30
+                    for _ in range(wait_sec):
+                        if not _scheduler_running:
+                            break
+                        time.sleep(1)
         except Exception as e:
             if log_callback:
                 log_callback(f"error:{e}")

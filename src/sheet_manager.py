@@ -360,6 +360,7 @@ def distribute_times(date_str, count):
 
     규칙:
     - 발행 가능 시간: 07:00 ~ 22:00
+    - 오늘 날짜면 현재 시간 + 10분 이후부터 배정
     - 간격: 10분~90분 사이 랜덤 (균등하지 않게)
     - 너무 밤늦게/새벽은 피함
 
@@ -380,19 +381,44 @@ def distribute_times(date_str, count):
     if count <= 0:
         return []
 
+    # 오늘 날짜인 경우: 현재 시간 + 10분 이후부터 시작
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    if date_str == today_str:
+        now_offset = (now.hour - start_hour) * 60 + now.minute + 10  # 현재시간 + 10분
+        earliest_offset = max(0, now_offset)
+        print(f"[sheet_manager] 오늘 예약: {now.strftime('%H:%M')} 이후 ({earliest_offset}분~) 부터 배정")
+    else:
+        earliest_offset = 0
+
     if count == 1:
-        # 1개면 피크 시간대에서 랜덤
-        peak_hours = [9, 10, 12, 13, 14, 17, 18]
-        hour = random.choice(peak_hours)
-        minute = random.randint(0, 59)
+        if date_str == today_str:
+            # 오늘이면 현재 시간 + 10~30분 후
+            offset = earliest_offset + random.randint(0, 20)
+            if offset >= total_minutes:
+                offset = total_minutes - 5
+            hour = start_hour + offset // 60
+            minute = offset % 60
+        else:
+            # 미래 날짜면 피크 시간대에서 랜덤
+            peak_hours = [9, 10, 12, 13, 14, 17, 18]
+            hour = random.choice(peak_hours)
+            minute = random.randint(0, 59)
         return [f"{date_str} {hour:02d}:{minute:02d}"]
 
     # 여러 개: 전체 시간대를 대략 나눈 뒤 랜덤 오프셋
-    # 최소 간격 10분 보장
     min_gap = 10
+    available_minutes = total_minutes - earliest_offset
 
-    # 시작점을 랜덤하게 (07:00~08:30 사이)
-    first_offset = random.randint(0, 90)
+    if available_minutes < count * min_gap:
+        print(f"[sheet_manager] ⚠️ 남은 시간({available_minutes}분)이 부족 - 간격 축소")
+        min_gap = max(5, available_minutes // count)
+
+    # 시작점
+    if earliest_offset > 0:
+        first_offset = earliest_offset + random.randint(0, min(20, available_minutes // count))
+    else:
+        first_offset = random.randint(0, 90)
 
     times = []
     current = first_offset
@@ -401,19 +427,16 @@ def distribute_times(date_str, count):
         if i == 0:
             offset = current
         else:
-            # 남은 시간을 남은 포스팅 수로 나눈 범위 내에서 랜덤 간격
             remaining_posts = count - i
             remaining_minutes = total_minutes - current
             avg_gap = remaining_minutes / remaining_posts
 
-            # 간격을 10분~최대 사이에서 랜덤 (사람처럼 불규칙)
             max_gap = min(int(avg_gap * 1.8), 120)
             min_g = max(min_gap, int(avg_gap * 0.3))
             gap = random.randint(min_g, max(min_g, max_gap))
 
             offset = current + gap
 
-        # 시간대 범위 초과 방지
         if offset >= total_minutes:
             offset = total_minutes - random.randint(5, 30)
 
