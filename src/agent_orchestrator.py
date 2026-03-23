@@ -178,18 +178,18 @@ def run_automation_agent(
     progress_callback=None,
 ):
     """
-    Automation 에이전트: 네이버 블로그 발행
+    Automation 에이전트: 블로그 발행 (네이버/티스토리 자동 분기)
 
     Args:
         content_result: run_content_agent()의 반환값 또는 호환 dict
         mode: "human_like" (시뮬레이션) | "fast" (원클릭)
-        blog_id: 네이버 블로그 ID
+        blog_id: 블로그 키 (blogs.json의 키: yun_ung_chae, teheran_official, tistory_yun)
         category_no: 카테고리 번호
 
     Returns:
         dict: 발행 결과 + 메타데이터
     """
-    _log(f"[Automation] 발행 시작: mode={mode}")
+    _log(f"[Automation] 발행 시작: mode={mode}, blog_id={blog_id}")
 
     if not content_result.get("success"):
         return {"success": False, "error": "콘텐츠가 유효하지 않음", "agent": "automation"}
@@ -198,6 +198,104 @@ def run_automation_agent(
     content = content_result["raw_content"]
     image_data = content_result.get("image_data")
 
+    # 블로그 플랫폼 판별
+    platform = "naver"  # 기본값
+    if blog_id:
+        try:
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "blogs.json")
+            with open(config_path, "r", encoding="utf-8") as f:
+                blogs_config = json.load(f)
+            blog_conf = blogs_config.get("blogs", {}).get(blog_id, {})
+            platform = blog_conf.get("platform", "naver")
+        except Exception:
+            pass
+
+    _log(f"[Automation] 플랫폼: {platform}")
+
+    # ── 티스토리 발행 ──
+    if platform == "tistory":
+        return _run_tistory_automation(content_result, title, content, image_data, blog_id, mode, progress_callback)
+
+    # ── 네이버 발행 ──
+    return _run_naver_automation(content_result, title, content, image_data, blog_id, category_no, mode, progress_callback)
+
+
+def _run_tistory_automation(content_result, title, content, image_data, blog_id, mode, progress_callback):
+    """티스토리 발행 자동화 - CDN 이미지 업로드 + 공개 발행"""
+    try:
+        from src.tistory_poster import TistoryPoster
+        from src.html_converter import markdown_to_html
+
+        poster = TistoryPoster(progress_callback=progress_callback, blog_key=blog_id)
+        try:
+            # 1. 브라우저 실행 + 카카오 로그인
+            poster.connect()
+            poster.login()
+
+            # 2. 이미지 다운로드 → CDN 업로드
+            cdn_image_urls = []
+            if image_data:
+                from src.image_handler import download_dalle_images
+                images_dir = os.path.join("outputs", "images")
+                local_paths = download_dalle_images(image_data, output_dir=images_dir)
+                local_image_paths = [p for p in local_paths if p and os.path.exists(p)]
+
+                if local_image_paths:
+                    # 에디터 페이지로 이동 (이미지 업로드용)
+                    editor_url = poster._blog_config.get(
+                        "editor_url",
+                        f"{poster._blog_config.get('blog_url', '')}/manage/newpost"
+                    )
+                    poster.page.goto(editor_url, wait_until="domcontentloaded", timeout=30000)
+                    import time as _time
+                    _time.sleep(6)
+                    # 팝업 제거
+                    try:
+                        poster.page.evaluate("""() => {
+                            const alerts = document.querySelectorAll('.mce-notification');
+                            for (const a of alerts) { a.remove(); }
+                        }""")
+                    except Exception:
+                        pass
+                    _time.sleep(1)
+                    cdn_image_urls = poster._upload_images(local_image_paths)
+                    # file:// URL 필터링 (CDN URL만 사용)
+                    cdn_image_urls = [u for u in cdn_image_urls if u and not u.startswith('file:')]
+                    _log(f"[Automation] CDN 이미지 {len(cdn_image_urls)}장 업로드 완료")
+
+            # 3. 마크다운 → HTML 변환 (CDN URL 사용)
+            html_content = markdown_to_html(
+                content,
+                image_urls=cdn_image_urls if cdn_image_urls else [],
+                persona_id=content_result.get("persona_id"),
+            )
+
+            # 4. 발행
+            topic = content_result.get("topic", "")
+            tags = [topic] + topic.split() if topic else []
+            result = poster.post_human_like(
+                title=title,
+                html_content=html_content,
+                keyword=topic,
+                tags=tags[:10],
+            )
+            result["title"] = title
+            result["char_count"] = content_result.get("char_count", len(content))
+            result["image_count"] = len(cdn_image_urls)
+            result["posting_mode"] = mode
+            result["agent"] = "automation"
+            result["platform"] = "tistory"
+            return result
+        finally:
+            poster.close()
+
+    except Exception as e:
+        _log(f"[Automation] 티스토리 오류: {e}")
+        return {"success": False, "error": str(e), "agent": "automation", "platform": "tistory"}
+
+
+def _run_naver_automation(content_result, title, content, image_data, blog_id, category_no, mode, progress_callback):
+    """네이버 발행 자동화"""
     try:
         from src.naver_poster import NaverPoster
 
@@ -277,7 +375,7 @@ def run_automation_agent(
             poster.close()
 
     except Exception as e:
-        _log(f"[Automation] 오류: {e}")
+        _log(f"[Automation] 네이버 오류: {e}")
         return {"success": False, "error": str(e), "agent": "automation"}
 
 

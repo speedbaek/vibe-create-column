@@ -8,14 +8,13 @@
 
 import os
 import json
+import subprocess
 import threading
 import time
 import sys
 import asyncio
 import tempfile
 import shutil
-from datetime import datetime, timedelta
-
 
 SCHEDULE_DIR = "outputs/schedules"
 SCHEDULE_FILE = os.path.join(SCHEDULE_DIR, "jobs.json")
@@ -237,81 +236,80 @@ def create_interval_schedule(topics, persona_id, persona_name, blog_key,
     return created_jobs
 
 
+def _run_job_subprocess(job):
+    """subprocess로 Playwright 작업 격리 실행 (asyncio 충돌 방지)"""
+    runner_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "job_runner.py")
+    job_json = json.dumps(job, ensure_ascii=False)
+
+    proc = subprocess.run(
+        [sys.executable, runner_path],
+        input=job_json,
+        capture_output=True,
+        text=True,
+        timeout=600,  # 10분 타임아웃
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    )
+
+    # stdout 마지막 줄이 결과 JSON
+    stdout_lines = proc.stdout.strip().split("\n")
+
+    # 로그 출력 (결과 JSON 제외)
+    for line in stdout_lines[:-1]:
+        print(line)
+
+    if proc.returncode != 0:
+        stderr_msg = proc.stderr.strip()[-500:] if proc.stderr else "unknown error"
+        return {"success": False, "error": f"subprocess failed (exit {proc.returncode}): {stderr_msg}"}
+
+    # 마지막 줄에서 JSON 파싱
+    try:
+        return json.loads(stdout_lines[-1])
+    except (json.JSONDecodeError, IndexError):
+        # JSON 파싱 실패 시 전체 stdout에서 JSON 찾기
+        for line in reversed(stdout_lines):
+            try:
+                return json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        return {"success": False, "error": f"결과 파싱 실패: {proc.stdout[-300:]}"}
+
+
 def execute_job(job, progress_callback=None):
-    """단일 작업 실행 (sync) — 네이버/티스토리 플랫폼 자동 분기"""
+    """단일 작업 실행 — subprocess로 Playwright 격리 (asyncio 충돌 방지)"""
     job_id = job["id"]
     update_job_status(job_id, "publishing")
     if progress_callback:
         progress_callback(job_id, "publishing", f"발행 중: {job['topic'][:30]}")
-
-    blog_key = job.get("blog_key", "yun_ung_chae")
-    try:
-        with open("config/blogs.json", "r", encoding="utf-8") as f:
-            blogs = json.load(f).get("blogs", {})
-        blog_conf = blogs.get(blog_key, {})
-        blog_id_key = blog_conf.get("env_id_key", "NAVER_ID")
-        blog_id = os.environ.get(blog_id_key, "")
-        platform = blog_conf.get("platform", "naver")
-    except Exception:
-        blog_id = os.environ.get("NAVER_ID", "")
-        platform = "naver"
 
     max_retries = 2
     last_error = None
 
     for attempt in range(1, max_retries + 1):
         try:
-            if platform == "tistory":
-                from src.tistory_poster import TistoryPoster
-                poster = TistoryPoster(progress_callback=None, blog_key=blog_key)
-                try:
-                    poster.connect()
-                    result = poster.post_full_pipeline(
-                        topic=job["topic"],
-                        persona_id=job["persona_id"],
-                        persona_name=job["persona_name"],
-                        model_id=job.get("model_id", "claude-sonnet-4-6"),
-                        temperature=job.get("temperature", 0.7),
-                        include_images=job.get("include_images", True),
-                        image_count=job.get("image_count"),
-                        override_title=job.get("override_title"),
-                    )
-                finally:
-                    poster.close()
-            else:
-                from src.naver_poster import NaverPoster
-                poster = NaverPoster(progress_callback=None, blog_key=blog_key)
-                try:
-                    result = poster.post_human_like(
-                        topic=job["topic"],
-                        persona_id=job["persona_id"],
-                        persona_name=job["persona_name"],
-                        model_id=job.get("model_id", "claude-sonnet-4-6"),
-                        temperature=job.get("temperature", 0.7),
-                        include_images=job.get("include_images", True),
-                        image_count=job.get("image_count"),
-                        blog_id=blog_id,
-                        category_no=job.get("category_no"),
-                        override_title=job.get("override_title"),
-                    )
-                finally:
-                    poster.close()
+            result = _run_job_subprocess(job)
 
             if result.get("success"):
-                break  # 성공하면 재시도 루프 탈출
+                break
             else:
                 last_error = result.get("error", "발행 실패")
                 if attempt < max_retries:
-                    import time as _time
                     print(f"[scheduler] 발행 실패 (시도 {attempt}/{max_retries}), 30초 후 재시도: {last_error}")
-                    _time.sleep(30)
+                    time.sleep(30)
                     continue
+        except subprocess.TimeoutExpired:
+            last_error = "작업 시간 초과 (10분)"
+            if attempt < max_retries:
+                print(f"[scheduler] 타임아웃 (시도 {attempt}/{max_retries}), 30초 후 재시도")
+                time.sleep(30)
+                continue
+            else:
+                result = {"success": False, "error": last_error}
+                break
         except Exception as e:
             last_error = f"{type(e).__name__}: {e}"
             if attempt < max_retries:
-                import time as _time
                 print(f"[scheduler] 오류 (시도 {attempt}/{max_retries}), 30초 후 재시도: {last_error}")
-                _time.sleep(30)
+                time.sleep(30)
                 continue
             else:
                 result = {"success": False, "error": last_error}
@@ -345,7 +343,7 @@ def execute_job(job, progress_callback=None):
                 "topic": job.get("topic", ""),
                 "content": result.get("title", job.get("topic", "")),
                 "url": result.get("url", ""),
-                "blog_id": blog_id,
+                "blog_id": job.get("blog_id", job.get("blog_key", "")),
                 "source": "scheduler",
             }
             hist_data.insert(0, entry)
@@ -398,8 +396,6 @@ def execute_pending_jobs(progress_callback=None):
 
 def _scheduler_loop(check_interval=30, log_callback=None):
     global _scheduler_running
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     if log_callback:
         log_callback("scheduler_started")
     while _scheduler_running:

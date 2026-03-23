@@ -447,30 +447,94 @@ class TistoryPoster:
                 }""")
                 time.sleep(1)
 
-            # 공개 설정: #open20 (공개) 라디오
-            self.page.evaluate("""() => {
-                const radio = document.getElementById('open20');
-                if (radio) { radio.checked = true; radio.click(); }
-            }""")
-            _log("공개 설정 완료")
+            # 공개 설정: Playwright 실제 클릭 (JS DOM 조작은 React 상태에 반영 안됨)
+            time.sleep(1)  # 레이어 렌더링 대기
+
+            # 방법1: Playwright로 라디오 label 클릭 (가장 확실)
+            visibility_set = "NOT_SET"
+            try:
+                # #open20 라디오의 label을 클릭 (for="open20")
+                open_label = self.page.locator('label[for="open20"]')
+                if open_label.count() > 0 and open_label.is_visible():
+                    open_label.click()
+                    visibility_set = "label_for_open20"
+                    _log(f"공개 설정: label[for=open20] 클릭")
+                else:
+                    # #open20 라디오 직접 클릭
+                    open_radio = self.page.locator('#open20')
+                    if open_radio.count() > 0:
+                        open_radio.click(force=True)
+                        visibility_set = "radio_open20_force"
+                        _log(f"공개 설정: #open20 강제 클릭")
+            except Exception as e:
+                _log(f"Playwright 공개 설정 시도1 오류: {e}")
+
             time.sleep(0.5)
 
-            # 최종 발행 버튼 클릭 (#publish-btn)
-            self.page.evaluate("""() => {
-                const btn = document.getElementById('publish-btn');
-                if (btn) { btn.click(); }
-            }""")
-            _log("발행 버튼 JS 클릭!")
-            time.sleep(3)
+            # 방법2: 여전히 체크 안됐으면 JS dispatchEvent + click 조합
+            if visibility_set == "NOT_SET":
+                visibility_set = self.page.evaluate("""() => {
+                    let radio = document.getElementById('open20');
+                    if (!radio) radio = document.querySelector('input[name="visibility"][value="20"]');
+                    if (radio) {
+                        radio.checked = true;
+                        radio.click();
+                        radio.dispatchEvent(new Event('change', { bubbles: true }));
+                        radio.dispatchEvent(new Event('input', { bubbles: true }));
+                        // label도 클릭
+                        const label = document.querySelector('label[for="' + radio.id + '"]');
+                        if (label) label.click();
+                        return 'js_fallback';
+                    }
+                    return 'NOT_FOUND';
+                }""")
+            _log(f"공개 설정 결과: {visibility_set}")
+            time.sleep(1)
 
-            # Playwright click도 추가 시도 (이중 안전장치)
+            # 검증: 실제 체크 상태
+            is_public = self.page.evaluate("""() => {
+                const radio = document.getElementById('open20') ||
+                              document.querySelector('input[name="visibility"][value="20"]');
+                return radio ? radio.checked : null;
+            }""")
+            _log(f"공개 라디오 체크 상태: {is_public}")
+
+            # 방법3: 스크린샷으로 디버깅 정보 수집
+            if not is_public:
+                _log("⚠️ 공개 설정 실패 - 발행 레이어 HTML 디버깅")
+                layer_html = self.page.evaluate("""() => {
+                    const layer = document.getElementById('publish-layer');
+                    if (!layer) return 'NO_LAYER';
+                    // 라디오 버튼 목록
+                    const radios = layer.querySelectorAll('input[type="radio"]');
+                    const info = [];
+                    radios.forEach(r => {
+                        info.push({id: r.id, name: r.name, value: r.value, checked: r.checked});
+                    });
+                    return JSON.stringify(info);
+                }""")
+                _log(f"발행 레이어 라디오 목록: {layer_html}")
+
+            # 최종 발행 버튼 클릭 (#publish-btn)
+            # 발행 버튼 텍스트가 "공개발행" 또는 "발행"인지 확인
+            publish_btn_text = self.page.evaluate("""() => {
+                const btn = document.getElementById('publish-btn');
+                return btn ? btn.textContent.trim() : 'NOT_FOUND';
+            }""")
+            _log(f"발행 버튼 텍스트: {publish_btn_text}")
+
+            # Playwright 실제 클릭 (JS click보다 확실)
             try:
                 final_btn = self.page.locator('#publish-btn')
                 if final_btn.count() > 0 and final_btn.is_visible():
                     final_btn.click()
                     _log("발행 버튼 Playwright 클릭!")
+                else:
+                    self.page.evaluate('document.getElementById("publish-btn")?.click()')
+                    _log("발행 버튼 JS 클릭!")
             except Exception:
-                pass
+                self.page.evaluate('document.getElementById("publish-btn")?.click()')
+                _log("발행 버튼 JS 폴백 클릭!")
             time.sleep(5 + random.uniform(1, 2))
 
             # 8. 발행 결과 확인
@@ -498,6 +562,7 @@ class TistoryPoster:
             time.sleep(2)
 
             # 최신 글 제목이 현재 발행한 제목과 일치하는지 확인
+            post_url = ""
             try:
                 first_title_el = self.page.query_selector('.tit_post, .list_post .tit_cont, .post-item .title')
                 if first_title_el:
@@ -512,10 +577,18 @@ class TistoryPoster:
                     post_id_match = _re.search(r'/post/(\d+)', href)
                     if post_id_match:
                         post_url = f"{blog_url}/{post_id_match.group(1)}"
-                        _log(f"발행 성공! URL: {post_url}")
-                        return {"success": True, "url": post_url, "error": ""}
             except Exception as ex:
                 _log(f"최신 글 확인 오류: {ex}")
+
+            # 비공개 → 공개 전환 (관리 페이지에서)
+            try:
+                self._ensure_post_public(title)
+            except Exception as e:
+                _log(f"공개 전환 시도 오류: {e}")
+
+            if post_url:
+                _log(f"발행 성공! URL: {post_url}")
+                return {"success": True, "url": post_url, "error": ""}
 
             _log(f"발행 완료 (URL 확인 불가): {current_url}")
             return {"success": True, "url": current_url, "error": ""}
@@ -525,9 +598,93 @@ class TistoryPoster:
             _log(f"발행 오류: {err_msg}")
             return {"success": False, "url": "", "error": err_msg}
 
+    def _ensure_post_public(self, title=""):
+        """관리 페이지에서 최신 글이 비공개이면 공개로 변경"""
+        blog_url = self._blog_config.get("blog_url", "")
+
+        # 현재 관리 페이지인지 확인, 아니면 이동
+        if "/manage/posts" not in self.page.url:
+            self.page.goto(f"{blog_url}/manage/posts", wait_until="domcontentloaded", timeout=10000)
+            time.sleep(2)
+
+        # 최신 글의 비공개 표시 확인
+        is_private = self.page.evaluate("""() => {
+            // 최신 글(첫 번째 행)에서 비공개/보호 표시 찾기
+            const firstRow = document.querySelector('.list_post li, .post-item, tr.item');
+            if (!firstRow) return null;
+            const text = firstRow.textContent || '';
+            if (text.includes('비공개') || text.includes('보호')) return true;
+            // 공개 상태 아이콘 확인
+            const badge = firstRow.querySelector('.ico_secret, .badge-private, .label_secret');
+            return badge ? true : false;
+        }""")
+        _log(f"최신 글 비공개 여부: {is_private}")
+
+        if not is_private:
+            _log("이미 공개 상태 - 변경 불필요")
+            return
+
+        # 비공개 → 공개 변경: 최신 글의 설정 메뉴에서 "공개로 변경" 클릭
+        _log("비공개 글 감지 → 공개로 변경 시도...")
+
+        # 방법1: 글 목록의 더보기(...) 버튼 → "공개로 변경" 클릭
+        try:
+            # 첫 번째 글의 더보기 버튼 클릭
+            more_btn = self.page.locator('.list_post li:first-child .btn_more, .post-item:first-child .btn-more, .item:first-child .btn_setting').first
+            if more_btn.count() > 0:
+                more_btn.click()
+                time.sleep(1)
+
+                # "공개로 변경" 메뉴 클릭
+                public_menu = self.page.locator('text=공개로 변경').first
+                if public_menu.count() > 0 and public_menu.is_visible():
+                    public_menu.click()
+                    time.sleep(1)
+
+                    # 확인 다이얼로그 있으면 확인 클릭
+                    try:
+                        confirm_btn = self.page.locator('text=확인, .btn_ok, .confirm-btn').first
+                        if confirm_btn.count() > 0 and confirm_btn.is_visible():
+                            confirm_btn.click()
+                    except Exception:
+                        pass
+
+                    _log("공개로 변경 완료!")
+                    time.sleep(1)
+                    return
+        except Exception as e:
+            _log(f"더보기 메뉴 공개 변경 실패: {e}")
+
+        # 방법2: 글 수정 페이지로 진입해서 공개 설정 변경
+        try:
+            first_edit = self.page.locator('.list_post li:first-child a[href*="/manage/post/"], .post-item:first-child a').first
+            if first_edit.count() > 0:
+                first_edit.click()
+                time.sleep(3)
+
+                # 발행 레이어 열기
+                self.page.evaluate('document.getElementById("publish-layer-btn")?.click()')
+                time.sleep(2)
+
+                # 공개 라디오 클릭
+                open_label = self.page.locator('label[for="open20"]')
+                if open_label.count() > 0 and open_label.is_visible():
+                    open_label.click()
+                    time.sleep(0.5)
+
+                # 수정 발행
+                self.page.evaluate('document.getElementById("publish-btn")?.click()')
+                time.sleep(3)
+                _log("수정 페이지에서 공개로 재발행 완료!")
+                return
+        except Exception as e:
+            _log(f"수정 페이지 공개 변경 실패: {e}")
+
+        _log("⚠️ 공개 전환 모든 방법 실패")
+
     def _upload_images(self, image_paths):
         """
-        기본모드에서 이미지를 에디터에 업로드
+        네트워크 응답 가로채기로 이미지를 업로드하고 CDN URL 획득
 
         Args:
             image_paths: 로컬 이미지 파일 경로 리스트
@@ -547,6 +704,40 @@ class TistoryPoster:
             try:
                 _log(f"이미지 업로드 중... ({i+1}/{len(image_paths)})")
 
+                # 네트워크 응답 캡처 준비
+                captured_urls = []
+                def handle_response(response):
+                    try:
+                        url = response.url
+                        # 티스토리 이미지 업로드 API 응답 캡처
+                        if ('upload' in url or 'attach' in url or 'image' in url) and response.status == 200:
+                            try:
+                                body = response.text()
+                                # JSON 응답에서 URL 추출
+                                import json as _json
+                                data = _json.loads(body)
+                                # 다양한 응답 형식 처리
+                                img_url = (data.get('url') or data.get('imageUrl')
+                                          or data.get('src') or data.get('fileUrl', ''))
+                                if not img_url and isinstance(data, dict):
+                                    # 중첩 구조 탐색
+                                    for v in data.values():
+                                        if isinstance(v, str) and ('cdn' in v or 'daumcdn' in v or 'kakaocdn' in v):
+                                            img_url = v
+                                            break
+                                        if isinstance(v, dict):
+                                            img_url = v.get('url', v.get('src', ''))
+                                            if img_url:
+                                                break
+                                if img_url:
+                                    captured_urls.append(img_url)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                self.page.on("response", handle_response)
+
                 # 1. "첨부" 버튼 클릭 (보이는 것만)
                 attach_btns = self.page.locator('[aria-label="첨부"]')
                 clicked = False
@@ -556,7 +747,14 @@ class TistoryPoster:
                         clicked = True
                         break
                 if not clicked:
+                    # fallback: 다른 셀렉터 시도
+                    alt_btn = self.page.locator('button:has-text("첨부"), .btn-attach, [data-name="attach"]').first
+                    if alt_btn.count() > 0:
+                        alt_btn.click()
+                        clicked = True
+                if not clicked:
                     _log("첨부 버튼을 찾을 수 없습니다")
+                    self.page.remove_listener("response", handle_response)
                     continue
                 time.sleep(1.5)
 
@@ -580,31 +778,67 @@ class TistoryPoster:
                 file_chooser.set_files(img_path)
                 _log(f"이미지 파일 전달: {os.path.basename(img_path)}")
 
-                # 3. 업로드 완료 대기
-                time.sleep(3 + random.uniform(0.5, 1.5))
+                # 3. 업로드 완료 + CDN URL 대기 (최대 15초)
+                cdn_url = ""
+                for wait_i in range(15):
+                    time.sleep(1)
 
-                # 4. 업로드된 이미지 URL 추출 (에디터 내 img 태그에서)
-                new_url = self.page.evaluate(f"""(() => {{
-                    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {{
-                        const imgs = tinymce.activeEditor.dom.select('img');
-                        if (imgs.length > 0) {{
-                            const lastImg = imgs[imgs.length - 1];
-                            return lastImg.src || lastImg.getAttribute('src') || '';
-                        }}
-                    }}
-                    return '';
-                }})()""")
+                    # 방법1: 네트워크 응답에서 캡처된 URL 확인
+                    if captured_urls:
+                        cdn_url = captured_urls[-1]
+                        _log(f"네트워크 응답에서 CDN URL 캡처 ({wait_i+1}초): {cdn_url[:80]}...")
+                        break
 
-                if new_url:
-                    uploaded_urls.append(new_url)
-                    _log(f"이미지 업로드 완료: {new_url[:80]}...")
+                    # 방법2: TinyMCE DOM에서 CDN URL 확인
+                    new_url = self.page.evaluate("""(() => {
+                        if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+                            const imgs = tinymce.activeEditor.dom.select('img');
+                            for (let i = imgs.length - 1; i >= 0; i--) {
+                                const src = imgs[i].src || '';
+                                if (src.includes('daumcdn') || src.includes('kakaocdn')
+                                    || src.includes('tistory') || (src.startsWith('http') && !src.startsWith('file:'))) {
+                                    return src;
+                                }
+                            }
+                        }
+                        // iframe 내 확인
+                        const iframes = document.querySelectorAll('.mce-edit-area iframe');
+                        for (const iframe of iframes) {
+                            try {
+                                const imgs = iframe.contentDocument.querySelectorAll('img');
+                                for (let i = imgs.length - 1; i >= 0; i--) {
+                                    const src = imgs[i].src || '';
+                                    if (src.includes('daumcdn') || src.includes('kakaocdn')
+                                        || (src.startsWith('http') && !src.startsWith('file:'))) {
+                                        return src;
+                                    }
+                                }
+                            } catch(e) {}
+                        }
+                        return '';
+                    })()""")
+
+                    if new_url:
+                        cdn_url = new_url
+                        _log(f"DOM에서 CDN URL 발견 ({wait_i+1}초): {cdn_url[:80]}...")
+                        break
+
+                self.page.remove_listener("response", handle_response)
+
+                if cdn_url:
+                    uploaded_urls.append(cdn_url)
+                    _log(f"이미지 업로드 완료: {cdn_url[:80]}...")
                 else:
-                    _log(f"이미지 URL 추출 실패 (업로드는 됐을 수 있음)")
+                    _log(f"이미지 CDN URL 추출 실패")
 
                 time.sleep(1 + random.uniform(0.3, 0.8))
 
             except Exception as e:
                 _log(f"이미지 업로드 오류: {e}")
+                try:
+                    self.page.remove_listener("response", handle_response)
+                except Exception:
+                    pass
 
         return uploaded_urls
 

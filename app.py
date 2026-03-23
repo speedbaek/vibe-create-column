@@ -617,6 +617,11 @@ with tab1:
                     url=result.get('url', ''),
                 )
 
+        except ImportError as ie:
+            st.error(f"모듈 로드 실패: {ie}. playwright 설치: `pip install playwright && playwright install chromium`")
+        except Exception as e:
+            st.error(f"❌ 오류: {type(e).__name__}: {e}")
+
     # 발행 결과 표시 (rerun 후에도 유지)
     if st.session_state.get("_last_publish_result"):
         result = st.session_state["_last_publish_result"]
@@ -642,11 +647,6 @@ with tab1:
             if st.button("🗑️ 에러 닫기", key="clear_publish_error"):
                 del st.session_state["_last_publish_result"]
                 st.rerun()
-
-        except ImportError as ie:
-            st.error(f"모듈 로드 실패: {ie}. playwright 설치: `pip install playwright && playwright install chromium`")
-        except Exception as e:
-            st.error(f"❌ 오류: {type(e).__name__}: {e}")
 
     elif oneclick_clicked and not oneclick_topic.strip():
         st.warning("키워드를 입력해주세요.")
@@ -1184,8 +1184,8 @@ with tab2:
             from collections import defaultdict
             groups = defaultdict(list)
             for j in all_jobs:
-                sched_time = j.get("scheduled_time", "")
-                date_part = sched_time.split(" ")[0] if " " in sched_time else "즉시"
+                sched_time = j.get("scheduled_time") or ""
+                date_part = sched_time.split(" ")[0] if sched_time and " " in sched_time else "즉시"
                 bk = j.get("blog_key", "")
                 bconf = BLOG_CONFIG.get(bk, {})
                 blog_name = bconf.get("display_name", bk)
