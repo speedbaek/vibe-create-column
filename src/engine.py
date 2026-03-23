@@ -303,7 +303,20 @@ def get_retriever_context(persona_id, topic=""):
 
 
 def _build_prompt_text(persona_id, persona_name, topic, context_text, platform=None):
-    """전체 프롬프트를 문자열로 조립"""
+    """전체 프롬프트를 문자열로 조립 (하위 호환용)"""
+    system_text, user_text = _build_prompt_cached(persona_id, persona_name, topic, context_text, platform)
+    return system_text + "\n\n" + user_text
+
+
+def _build_prompt_cached(persona_id, persona_name, topic, context_text, platform=None):
+    """
+    Prompt Caching용: 시스템(캐싱 대상) + 유저(매번 변경) 분리
+
+    Returns:
+        tuple: (system_text, user_text)
+        - system_text: 페르소나 규칙/스타일 (동일 persona면 캐싱됨)
+        - user_text: 주제 + 컨텍스트 (매번 다름)
+    """
     base = load_base_prompt()
     human_rules = load_human_style_rules()
     anti_ai = load_anti_ai_rules()
@@ -320,18 +333,19 @@ def _build_prompt_text(persona_id, persona_name, topic, context_text, platform=N
         except Exception:
             pass
 
-    # 변수 치환
-    prompt_text = base.replace("{human_style_rules}", human_rules)
-    prompt_text = prompt_text.replace("{anti_ai_rules}", anti_ai)
-    prompt_text = prompt_text.replace("{persona_name}", persona_name)
-    prompt_text = prompt_text.replace("{persona_intro}", persona_intro)
-    prompt_text = prompt_text.replace("{persona_rules}", persona_rules)
-    prompt_text = prompt_text.replace("{context}", context_text)
-    prompt_text = prompt_text.replace("{topic}", topic)
+    # ── 시스템 프롬프트 (캐싱 대상: 동일 persona면 매번 동일) ──
+    system_text = base.replace("{human_style_rules}", human_rules)
+    system_text = system_text.replace("{anti_ai_rules}", anti_ai)
+    system_text = system_text.replace("{persona_name}", persona_name)
+    system_text = system_text.replace("{persona_intro}", persona_intro)
+    system_text = system_text.replace("{persona_rules}", persona_rules)
+    # context와 topic 플레이스홀더는 제거 (user_text로 분리)
+    system_text = system_text.replace("{context}", "")
+    system_text = system_text.replace("{topic}", "")
 
-    # 티스토리용 유사도 회피 지시
+    # 티스토리 차별화 지시도 시스템에 포함 (캐싱됨)
     if platform == "tistory":
-        prompt_text += """
+        system_text += """
 
 ## 중요: 이 글은 티스토리 블로그용입니다.
 같은 주제의 네이버 블로그 글과 반드시 차별화되어야 합니다:
@@ -343,39 +357,75 @@ def _build_prompt_text(persona_id, persona_name, topic, context_text, platform=N
 - 검색엔진 유사도 검사에 걸리지 않도록 표현을 독립적으로 작성하세요.
 """
 
-    return prompt_text
+    # ── 유저 메시지 (매번 다름: 주제 + 컨텍스트) ──
+    user_text = f"""## 작성할 키워드/주제
+{topic}
+
+## 참고 자료 (과거 글)
+{context_text}
+
+위 참고 자료를 바탕으로, 주어진 키워드/주제에 대한 전문가 칼럼을 작성하세요."""
+
+    return system_text, user_text
 
 
 def generate_column(persona_id, persona_name, topic, model_id="claude-sonnet-4-6", temperature=0.7, platform=None):
-    """컬럼 생성 (비스트리밍)"""
+    """컬럼 생성 (비스트리밍, Prompt Caching 적용)"""
     client = _get_client()
     context_text = get_retriever_context(persona_id, topic)
-    prompt_text = _build_prompt_text(persona_id, persona_name, topic, context_text, platform=platform)
+    system_text, user_text = _build_prompt_cached(persona_id, persona_name, topic, context_text, platform=platform)
 
     message = client.messages.create(
         model=model_id,
         max_tokens=6000,
         temperature=temperature,
+        system=[
+            {
+                "type": "text",
+                "text": system_text,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ],
         messages=[
-            {"role": "user", "content": prompt_text}
+            {"role": "user", "content": user_text}
         ]
     )
+
+    # 캐싱 통계 로그
+    usage = message.usage
+    cache_read = getattr(usage, 'cache_read_input_tokens', 0) or 0
+    cache_create = getattr(usage, 'cache_creation_input_tokens', 0) or 0
+    input_tokens = getattr(usage, 'input_tokens', 0) or 0
+    if cache_read > 0:
+        savings_pct = round(cache_read / (input_tokens + cache_read + cache_create) * 90, 1)
+        print(f"[engine] 💰 Prompt Cache HIT: {cache_read}토큰 캐시 읽기 (~{savings_pct}% 절감)")
+    elif cache_create > 0:
+        print(f"[engine] 📝 Prompt Cache MISS (생성): {cache_create}토큰 캐시 저장됨 (다음부터 할인)")
+    else:
+        print(f"[engine] ⚡ 토큰 사용: input={input_tokens}, output={usage.output_tokens}")
 
     return message.content[0].text
 
 
 def generate_column_stream(persona_id, persona_name, topic, model_id="claude-sonnet-4-6", temperature=0.7):
-    """컬럼 생성 (스트리밍) - 제너레이터 반환"""
+    """컬럼 생성 (스트리밍, Prompt Caching 적용) - 제너레이터 반환"""
     client = _get_client()
     context_text = get_retriever_context(persona_id, topic)
-    prompt_text = _build_prompt_text(persona_id, persona_name, topic, context_text)
+    system_text, user_text = _build_prompt_cached(persona_id, persona_name, topic, context_text)
 
     with client.messages.stream(
         model=model_id,
         max_tokens=6000,
         temperature=temperature,
+        system=[
+            {
+                "type": "text",
+                "text": system_text,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ],
         messages=[
-            {"role": "user", "content": prompt_text}
+            {"role": "user", "content": user_text}
         ]
     ) as stream:
         for text in stream.text_stream:
@@ -551,38 +601,48 @@ def generate_hooking_title(topic, persona_id="yun_ung_chae",
     except (FileNotFoundError, json.JSONDecodeError):
         pass
 
-    prompt = f"""당신은 네이버 블로그 제목을 작성하는 전문가입니다.
-아래의 스타일 가이드와 실제 제목 예시를 참고하여, 주어진 키워드/주제에 맞는 블로그 제목을 {count}개 생성하세요.
+    # 제목 프롬프트에서 시스템(스타일 가이드)과 유저(키워드) 분리 (Prompt Caching)
+    title_system = f"""당신은 네이버 블로그 제목을 작성하는 전문가입니다.
+아래의 스타일 가이드와 실제 제목 예시를 참고하여, 주어진 키워드/주제에 맞는 블로그 제목을 생성합니다.
 
 ## 제목 스타일 가이드
 {title_style}
 {persona_tone}
 ## 실제 블로그 제목 예시 (이 문체와 패턴을 참고)
 {sample_text}
-{avoid_text}
-## 키워드/주제
-{topic}
 
 ## 생성 규칙
-1. 위 스타일 가이드의 14가지 패턴 중 **{count}개 모두 서로 다른 패턴**을 사용하세요.
+1. 위 스타일 가이드의 14가지 패턴 중 **서로 다른 패턴**을 사용하세요.
 2. 각 제목은 25~50자 사이여야 합니다.
 3. 실제 전문가가 직접 쓴 것처럼 자연스러운 한국어를 사용하세요.
 4. AI가 쓴 느낌이 나는 표현은 절대 사용하지 마세요.
 5. 키워드를 제목 앞부분에 자연스럽게 배치하세요.
 6. 반드시 괄호강조형, 정보성짧은제목, 숫자리스트형, 비용임팩트형 중 최소 2개를 포함하세요.
-7. **제목 어미(끝부분) 중복 절대 금지**: "~해야 할 N가지", "~확인해야 할 N가지", "~알아야 할 N가지" 같은 동일한 어미 패턴이 2개 이상 나오면 안 됩니다. {count}개 제목의 끝 표현이 모두 달라야 합니다.
-8. 다양한 문장 종결: 의문형("~인가?"), 명사형("~총정리"), 경고형("~하면 안 되는 이유"), 비교형("~vs~"), 숫자형("~N가지") 등을 골고루 섞으세요.
+7. **제목 어미(끝부분) 중복 절대 금지**: 동일한 어미 패턴이 2개 이상 나오면 안 됩니다.
+8. 다양한 문장 종결: 의문형, 명사형, 경고형, 비교형, 숫자형 등을 골고루 섞으세요.
 
 ## 출력 형식
-제목만 한 줄에 하나씩 출력하세요. 번호, 따옴표, 설명 없이 제목 텍스트만 출력합니다.
-"""
+제목만 한 줄에 하나씩 출력하세요. 번호, 따옴표, 설명 없이 제목 텍스트만 출력합니다."""
+
+    title_user = f"""{avoid_text}
+## 키워드/주제
+{topic}
+
+위 키워드에 대한 블로그 제목을 {count}개 생성하세요."""
 
     message = client.messages.create(
         model=model_id,
         max_tokens=500,
         temperature=0.9,
+        system=[
+            {
+                "type": "text",
+                "text": title_system,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ],
         messages=[
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": title_user}
         ]
     )
 
