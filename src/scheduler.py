@@ -285,14 +285,25 @@ def _run_job_subprocess(job):
     )
 
     # stdout 마지막 줄이 결과 JSON
-    stdout_lines = proc.stdout.strip().split("\n")
+    stdout_lines = proc.stdout.strip().split("\n") if proc.stdout.strip() else []
 
-    # 로그 출력 (결과 JSON 제외)
+    # 로그 출력 (결과 JSON 제외) — cp949 안전 출력
+    from src.log_utils import safe_log
     for line in stdout_lines[:-1]:
-        print(line)
+        safe_log("subprocess", line)
 
     if proc.returncode != 0:
         stderr_msg = proc.stderr.strip()[-500:] if proc.stderr else "unknown error"
+        # cp949 에러가 stderr에 있지만 실제로는 발행 성공했을 수 있음
+        # stdout에서 성공 JSON이 있는지 먼저 확인
+        for line in reversed(stdout_lines):
+            try:
+                result = json.loads(line)
+                if result.get("success"):
+                    safe_log("subprocess", f"⚠️ returncode={proc.returncode}이지만 결과는 성공")
+                    return result
+            except (json.JSONDecodeError, ValueError):
+                continue
         return {"success": False, "error": f"subprocess failed (exit {proc.returncode}): {stderr_msg}"}
 
     # 마지막 줄에서 JSON 파싱
