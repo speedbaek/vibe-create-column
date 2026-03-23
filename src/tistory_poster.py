@@ -187,49 +187,121 @@ class TistoryPoster:
         return False
 
     def _select_category(self, keyword):
-        """키워드 기반 카테고리 자동 선택"""
+        """키워드 기반 카테고리 자동 선택 (티스토리 에디터 대응)"""
         categories = self._blog_config.get("categories", {})
         default_cat = self._blog_config.get("default_category", "")
 
         # 키워드로 카테고리 매칭
         matched_category = default_cat
-        for cat_name, keywords in categories.items():
-            if any(kw in keyword for kw in keywords):
+        for cat_name, cat_keywords in categories.items():
+            if any(kw in keyword for kw in cat_keywords):
                 matched_category = cat_name
                 break
 
         if not matched_category:
+            _log("카테고리 매칭 실패: 키워드에 맞는 카테고리 없음")
             return
 
+        _log(f"카테고리 매칭: '{keyword}' → '{matched_category}'")
+
         try:
-            # 카테고리 드롭다운 클릭
-            cat_selector = self.page.query_selector(
-                'select.tf_category, #category, select[name="category"], .btn_category'
-            )
-            if cat_selector:
-                tag_name = cat_selector.evaluate("el => el.tagName.toLowerCase()")
-                if tag_name == "select":
-                    # select 엘리먼트 → option에서 매칭
-                    options = cat_selector.query_selector_all("option")
+            # ── 방법 1: #category-btn 버튼 (현재 티스토리 에디터) ──
+            cat_btn = self.page.query_selector('#category-btn')
+            if cat_btn:
+                _log("카테고리 버튼 발견: #category-btn")
+                cat_btn.click()
+                time.sleep(2)
+
+                # 드롭다운 열린 후 모든 li 요소 탐색
+                dropdown_selectors = [
+                    '.btn-category li',
+                    '.btn-category ul li',
+                    '#category-list li',
+                    '[class*="category"] li',
+                    '.layer_category li',
+                    '.list_category li',
+                ]
+                for item_sel in dropdown_selectors:
+                    cat_items = self.page.query_selector_all(item_sel)
+                    if cat_items:
+                        _log(f"드롭다운 아이템 ({item_sel}): {[i.inner_text().strip() for i in cat_items[:10]]}")
+                        for item in cat_items:
+                            item_text = item.inner_text().strip()
+                            if matched_category in item_text or item_text in matched_category:
+                                item.click()
+                                time.sleep(0.5)
+                                _log(f"✅ 카테고리 선택: {matched_category}")
+                                return
+
+                # 버튼/a 태그로도 시도
+                link_selectors = [
+                    '.btn-category a',
+                    '.btn-category button',
+                    '#category-list a',
+                ]
+                for link_sel in link_selectors:
+                    links = self.page.query_selector_all(link_sel)
+                    if links:
+                        _log(f"링크 아이템 ({link_sel}): {[l.inner_text().strip() for l in links[:10]]}")
+                        for link in links:
+                            link_text = link.inner_text().strip()
+                            if matched_category in link_text or link_text in matched_category:
+                                link.click()
+                                time.sleep(0.5)
+                                _log(f"✅ 카테고리 선택 (링크): {matched_category}")
+                                return
+
+                # JS로 드롭다운 내 텍스트 매칭 클릭
+                js_result = self.page.evaluate(f"""() => {{
+                    const items = document.querySelectorAll('.btn-category *');
+                    for (const el of items) {{
+                        const text = el.textContent?.trim() || '';
+                        if (text === '{matched_category}' || text.includes('{matched_category}')) {{
+                            if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.tagName === 'LI'
+                                || el.tagName === 'SPAN' || el.onclick) {{
+                                el.click();
+                                return 'clicked:' + text;
+                            }}
+                        }}
+                    }}
+                    // 전체 DOM에서 텍스트 검색
+                    const all = document.querySelectorAll('a, button, li, span');
+                    for (const el of all) {{
+                        if (el.textContent?.trim() === '{matched_category}') {{
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > 0 && rect.height > 0) {{
+                                el.click();
+                                return 'clicked_global:' + el.tagName + ':' + el.textContent.trim();
+                            }}
+                        }}
+                    }}
+                    return 'not_found';
+                }}""")
+
+                if js_result and js_result.startswith("clicked"):
+                    _log(f"✅ 카테고리 선택 (JS): {js_result}")
+                    return
+
+                # 닫기
+                self.page.keyboard.press("Escape")
+                time.sleep(0.5)
+                _log(f"⚠️ 드롭다운에서 '{matched_category}' 못 찾음: {js_result}")
+                return
+
+            # ── 방법 2: select 엘리먼트 (구버전 에디터) ──
+            for sel in ['select#category', 'select.tf_category', 'select[name="category"]']:
+                cat_select = self.page.query_selector(sel)
+                if cat_select:
+                    options = cat_select.query_selector_all("option")
                     for opt in options:
                         text = opt.inner_text().strip()
-                        if matched_category in text:
+                        if matched_category in text or text in matched_category:
                             value = opt.get_attribute("value")
-                            cat_selector.select_option(value=value)
-                            _log(f"카테고리 선택: {matched_category}")
-                            return
-                else:
-                    # 버튼 형태 → 클릭 후 목록에서 선택
-                    cat_selector.click()
-                    time.sleep(1)
-                    cat_items = self.page.query_selector_all('.layer_category li, .list_category li')
-                    for item in cat_items:
-                        if matched_category in item.inner_text():
-                            item.click()
-                            _log(f"카테고리 선택: {matched_category}")
+                            cat_select.select_option(value=value)
+                            _log(f"✅ 카테고리 선택 (select): {matched_category} (value={value})")
                             return
 
-            _log(f"카테고리 '{matched_category}' 선택 실패 -기본 카테고리 유지")
+            _log(f"⚠️ 카테고리 UI 요소를 찾지 못함")
         except Exception as e:
             _log(f"카테고리 선택 오류: {e}")
 

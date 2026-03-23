@@ -140,13 +140,14 @@ def auto_fill_categories(dry_run=False):
 def _get_excluded_keywords(blog_key=None):
     """
     이미 예약/발행된 키워드 수집 (중복 방지용)
+    - 모든 블로그의 예약/발행 키워드를 수집 (블로그 간 중복도 방지)
 
     Returns:
         set: 제외할 키워드 set
     """
     excluded = set()
 
-    # 1. jobs.json에서 pending/publishing/published 키워드 수집
+    # 1. jobs.json에서 pending/publishing/published 키워드 수집 (모든 블로그)
     try:
         import json
         jobs_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -156,18 +157,15 @@ def _get_excluded_keywords(blog_key=None):
                 jobs = json.load(f)
             for j in jobs:
                 status = j.get("status", "")
-                # pending/publishing은 무조건 제외, published도 제외 (같은 키워드 재사용 방지)
                 if status in ("pending", "publishing", "published"):
                     topic = (j.get("topic") or "").strip()
                     if topic:
-                        # 블로그 키가 지정된 경우 해당 블로그만 필터
-                        if blog_key and j.get("blog_key") != blog_key:
-                            continue
+                        # 모든 블로그의 키워드를 제외 (블로그 간 중복 방지)
                         excluded.add(topic)
     except Exception as e:
         print(f"[sheet_manager] jobs.json 읽기 오류: {e}")
 
-    # 2. 발행 히스토리에서 최근 발행 키워드 수집
+    # 2. 발행 히스토리에서 최근 발행 키워드 수집 (모든 블로그)
     try:
         history_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outputs")
         for persona_dir in ["yun_ung_chae", "teheran_official"]:
@@ -182,6 +180,19 @@ def _get_excluded_keywords(blog_key=None):
     except Exception as e:
         print(f"[sheet_manager] history.json 읽기 오류: {e}")
 
+    # 3. 구글시트에서 이미 발행일(G열)이 채워진 키워드 수집
+    try:
+        ws = _get_worksheet()
+        all_rows = ws.get_all_values()
+        for row in all_rows[1:]:
+            keyword = row[0].strip() if len(row) > 0 else ""
+            pub_date = row[6].strip() if len(row) > 6 else ""
+            if keyword and pub_date:
+                excluded.add(keyword)
+    except Exception as e:
+        print(f"[sheet_manager] 구글시트 발행 키워드 수집 오류: {e}")
+
+    print(f"[sheet_manager] 제외 키워드 총 {len(excluded)}개 (jobs + history + sheet)")
     return excluded
 
 
