@@ -214,6 +214,46 @@ def run_in_thread(func, *args, **kwargs):
         return future.result(timeout=1200)  # 최대 20분 (글생성+이미지+업로드+발행)
 
 
+def run_in_subprocess(job_dict):
+    """즉시발행을 subprocess로 격리 실행 (asyncio 충돌 방지)
+    스케줄러와 동일한 job_runner.py 사용"""
+    import subprocess as sp
+
+    runner_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "job_runner.py")
+    job_json = json.dumps(job_dict, ensure_ascii=False)
+
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+
+    proc = sp.run(
+        [sys.executable, "-X", "utf8", runner_path],
+        input=job_json,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+
+    # stdout 마지막 줄에서 JSON 결과 파싱
+    stdout_lines = proc.stdout.strip().split("\n") if proc.stdout.strip() else []
+
+    if proc.returncode != 0:
+        stderr_msg = proc.stderr.strip()[-500:] if proc.stderr else "unknown"
+        return {"success": False, "error": f"subprocess failed: {stderr_msg}"}
+
+    for line in reversed(stdout_lines):
+        try:
+            return json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    return {"success": False, "error": f"결과 파싱 실패"}
+
+
 # -- 블로그 설정 로드 --
 
 def load_blog_config():
@@ -445,49 +485,29 @@ with tab1:
 
                                 st.info(f"({idx+1}/{len(selected_rec)}) **{kw_item['keyword']}** 발행 중...")
                                 with st.spinner(f"{kw_item['keyword']} 발행 중... (최대 5~10분)"):
-                                    def _do_rec_publish(topic=kw_item["keyword"], row_idx=kw_item.get("row_index")):
-                                        _is_ts = selected_blog.get("platform") == "tistory"
-                                        if _is_ts:
-                                            from src.tistory_poster import TistoryPoster
-                                            poster = TistoryPoster(progress_callback=log_progress, blog_key=selected_blog_key)
-                                        else:
-                                            from src.naver_poster import NaverPoster
-                                            poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
+                                    # subprocess로 격리 실행 (asyncio 충돌 방지)
+                                    job_dict = {
+                                        "topic": kw_item["keyword"],
+                                        "persona_id": selected_persona_id,
+                                        "persona_name": selected_persona_name,
+                                        "blog_key": selected_blog_key,
+                                        "model_id": selected_model,
+                                        "temperature": temperature,
+                                        "include_images": include_images,
+                                        "image_count": image_count if include_images else 0,
+                                    }
+                                    result = run_in_subprocess(job_dict)
+
+                                    # 발행 성공 시 구글시트 기록
+                                    if result.get("success") and kw_item.get("row_index"):
                                         try:
-                                            if _is_ts:
-                                                result = poster.post_full_pipeline(
-                                                    topic=topic,
-                                                    persona_id=selected_persona_id,
-                                                    persona_name=selected_persona_name,
-                                                    model_id=selected_model,
-                                                    include_images=include_images,
-                                                )
-                                            else:
-                                                result = poster.post_human_like(
-                                                    topic=topic,
-                                                    persona_id=selected_persona_id,
-                                                    persona_name=selected_persona_name,
-                                                    model_id=selected_model,
-                                                    temperature=temperature,
-                                                    include_images=include_images,
-                                                    image_count=image_count if include_images else 0,
-                                                    blog_id=naver_id,
-                                                )
-                                            # 발행 성공 시 구글시트 기록
-                                            if result.get("success") and row_idx:
-                                                try:
-                                                    from datetime import datetime
-                                                    mark_published(
-                                                        row_idx,
-                                                        datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                                        result.get("url", ""),
-                                                    )
-                                                except Exception:
-                                                    pass
-                                            return result
-                                        finally:
-                                            poster.close()
-                                    result = run_in_thread(_do_rec_publish)
+                                            mark_published(
+                                                kw_item["row_index"],
+                                                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                result.get("url", ""),
+                                            )
+                                        except Exception:
+                                            pass
 
                                 if result.get("success"):
                                     # 발행 히스토리 기록
@@ -543,67 +563,19 @@ with tab1:
             mode_label = {"human_like": "🧑 휴먼 시뮬레이션", "fast": "⚡ 원클릭"}
             with st.spinner(f"{mode_label.get(posting_mode, '')} 발행 진행 중... (최대 5~10분 소요)"):
 
-                _is_tistory = selected_blog.get("platform") == "tistory"
-
-                if _is_tistory:
-                    # 티스토리 발행 (모든 모드 공통)
-                    def _do_tistory():
-                        from src.tistory_poster import TistoryPoster
-                        poster = TistoryPoster(progress_callback=log_progress, blog_key=selected_blog_key)
-                        try:
-                            return poster.post_full_pipeline(
-                                topic=oneclick_topic.strip(),
-                                persona_id=selected_persona_id,
-                                persona_name=selected_persona_name,
-                                model_id=selected_model,
-                                include_images=include_images,
-                                override_title=override_title.strip() if override_title.strip() else None,
-                            )
-                        finally:
-                            poster.close()
-                    result = run_in_thread(_do_tistory)
-
-                elif posting_mode == "human_like":
-                    # 네이버 휴먼 시뮬레이션 모드
-                    def _do_human_like():
-                        from src.naver_poster import NaverPoster
-                        poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
-                        try:
-                            return poster.post_human_like(
-                                topic=oneclick_topic.strip(),
-                                persona_id=selected_persona_id,
-                                persona_name=selected_persona_name,
-                                model_id=selected_model,
-                                temperature=temperature,
-                                include_images=include_images,
-                                image_count=image_count if include_images else 0,
-                                blog_id=naver_id,
-                                override_title=override_title.strip() if override_title.strip() else None,
-                            )
-                        finally:
-                            poster.close()
-                    result = run_in_thread(_do_human_like)
-
-                else:
-                    # 네이버 원클릭 빠른 발행
-                    def _do_one_click():
-                        from src.naver_poster import NaverPoster
-                        poster = NaverPoster(progress_callback=log_progress, blog_key=selected_blog_key)
-                        try:
-                            return poster.one_click_post(
-                                topic=oneclick_topic.strip(),
-                                persona_id=selected_persona_id,
-                                persona_name=selected_persona_name,
-                                model_id=selected_model,
-                                temperature=temperature,
-                                include_images=include_images,
-                                image_count=image_count if include_images else 0,
-                                blog_id=naver_id,
-                                override_title=override_title.strip() if override_title.strip() else None,
-                            )
-                        finally:
-                            poster.close()
-                    result = run_in_thread(_do_one_click)
+                # subprocess로 격리 실행 (asyncio 충돌 방지)
+                job_dict = {
+                    "topic": oneclick_topic.strip(),
+                    "persona_id": selected_persona_id,
+                    "persona_name": selected_persona_name,
+                    "blog_key": selected_blog_key,
+                    "model_id": selected_model,
+                    "temperature": temperature,
+                    "include_images": include_images,
+                    "image_count": image_count if include_images else 0,
+                    "override_title": override_title.strip() if override_title.strip() else None,
+                }
+                result = run_in_subprocess(job_dict)
 
             # 결과를 session_state에 저장 (rerun 후에도 유지)
             st.session_state["_last_publish_result"] = result
