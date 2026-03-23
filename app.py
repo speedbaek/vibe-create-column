@@ -1075,6 +1075,7 @@ with tab2:
                         date_str=schedule_date.strftime("%Y-%m-%d"),
                         persona_id=persona_id,
                         count=schedule_count,
+                        blog_key=schedule_blog,
                     )
                     st.session_state.smart_schedule = schedule
                     st.session_state._sched_blog_key = schedule_blog
@@ -1192,8 +1193,8 @@ with tab2:
                 groups[(date_part, blog_name)].append(j)
 
             if groups:
-                for (date_key, blog_name) in sorted(groups.keys()):
-                    jobs_list = sorted(groups[(date_key, blog_name)], key=lambda x: x.get("scheduled_time", ""))
+                for (date_key, blog_name) in sorted(groups.keys(), key=lambda k: (k[0] or "", k[1] or "")):
+                    jobs_list = sorted(groups[(date_key, blog_name)], key=lambda x: x.get("scheduled_time") or "")
                     total = len(jobs_list)
                     done = sum(1 for j in jobs_list if j["status"] == "published")
                     fail = sum(1 for j in jobs_list if j["status"] == "failed")
@@ -1212,8 +1213,8 @@ with tab2:
 
                     with st.expander(f"📅 {date_key}  |  {blog_name}  |  {total}건  |  {group_status}"):
                         for j in jobs_list:
-                            sched_time = j.get("scheduled_time", "")
-                            time_part = sched_time.split(" ")[1][:5] if " " in sched_time else "즉시"
+                            sched_time = j.get("scheduled_time") or ""
+                            time_part = sched_time.split(" ")[1][:5] if sched_time and " " in sched_time else "즉시"
                             topic = j.get("topic", "")
                             status = j.get("status", "pending")
 

@@ -137,15 +137,94 @@ def auto_fill_categories(dry_run=False):
     }
 
 
-def get_available_keywords(persona_id="yun_ung_chae", limit=50):
+def _get_excluded_keywords(blog_key=None):
+    """
+    이미 예약/발행된 키워드 수집 (중복 방지용)
+
+    Returns:
+        set: 제외할 키워드 set
+    """
+    excluded = set()
+
+    # 1. jobs.json에서 pending/publishing/published 키워드 수집
+    try:
+        import json
+        jobs_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "outputs", "schedules", "jobs.json")
+        if os.path.exists(jobs_path):
+            with open(jobs_path, "r", encoding="utf-8") as f:
+                jobs = json.load(f)
+            for j in jobs:
+                status = j.get("status", "")
+                # pending/publishing은 무조건 제외, published도 제외 (같은 키워드 재사용 방지)
+                if status in ("pending", "publishing", "published"):
+                    topic = (j.get("topic") or "").strip()
+                    if topic:
+                        # 블로그 키가 지정된 경우 해당 블로그만 필터
+                        if blog_key and j.get("blog_key") != blog_key:
+                            continue
+                        excluded.add(topic)
+    except Exception as e:
+        print(f"[sheet_manager] jobs.json 읽기 오류: {e}")
+
+    # 2. 발행 히스토리에서 최근 발행 키워드 수집
+    try:
+        history_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outputs")
+        for persona_dir in ["yun_ung_chae", "teheran_official"]:
+            hist_path = os.path.join(history_dir, persona_dir, "history.json")
+            if os.path.exists(hist_path):
+                with open(hist_path, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+                for entry in history:
+                    topic = (entry.get("topic") or "").strip()
+                    if topic:
+                        excluded.add(topic)
+    except Exception as e:
+        print(f"[sheet_manager] history.json 읽기 오류: {e}")
+
+    return excluded
+
+
+def _is_keyword_similar(keyword, excluded_set):
+    """
+    키워드가 제외 목록과 유사한지 확인
+    - 정확 일치
+    - 부분 포함 (한쪽이 다른 쪽에 포함되는 경우)
+
+    Args:
+        keyword: 확인할 키워드
+        excluded_set: 제외 키워드 set
+
+    Returns:
+        bool: True면 제외 대상
+    """
+    kw = keyword.strip()
+    kw_no_space = kw.replace(" ", "")
+
+    for ex in excluded_set:
+        ex_no_space = ex.replace(" ", "")
+        # 정확 일치
+        if kw == ex or kw_no_space == ex_no_space:
+            return True
+        # 부분 포함 (짧은 쪽이 2글자 이상이어야 의미 있는 매칭)
+        if len(kw_no_space) >= 2 and len(ex_no_space) >= 2:
+            if kw_no_space in ex_no_space or ex_no_space in kw_no_space:
+                return True
+
+    return False
+
+
+def get_available_keywords(persona_id="yun_ung_chae", limit=50, blog_key=None):
     """
     발행 가능한 키워드 목록 가져오기
     - 발행일이 비어있는 키워드만
     - 해당 블로그 대상 키워드만 (공통 포함)
+    - 예약 대기/발행 완료 키워드 제외
 
     Args:
         persona_id: 페르소나 ID
         limit: 최대 반환 수
+        blog_key: 블로그 키 (중복 필터용)
 
     Returns:
         list[dict]: [{keyword, category, pc, mo, total, row_index}, ...]
@@ -154,13 +233,16 @@ def get_available_keywords(persona_id="yun_ung_chae", limit=50):
     all_rows = ws.get_all_values()
 
     # 블로그 필터
-    blog_filter = "공통"
     if persona_id == "yun_ung_chae":
         blog_filter_set = {"공통", "윤변", ""}
     elif persona_id == "teheran_official":
         blog_filter_set = {"공통", "공식", ""}
     else:
         blog_filter_set = {"공통", ""}
+
+    # 예약/발행 키워드 제외 목록
+    excluded = _get_excluded_keywords(blog_key=blog_key)
+    excluded_count = 0
 
     available = []
     for i, row in enumerate(all_rows[1:], start=2):
@@ -178,6 +260,11 @@ def get_available_keywords(persona_id="yun_ung_chae", limit=50):
         if target_blog and target_blog not in blog_filter_set:
             continue
 
+        # 예약/발행 키워드 중복 체크
+        if excluded and _is_keyword_similar(keyword, excluded):
+            excluded_count += 1
+            continue
+
         category = row[4].strip() if len(row) > 4 else ""
         pc = int(row[1]) if len(row) > 1 and row[1].strip().isdigit() else 0
         mo = int(row[2]) if len(row) > 2 and row[2].strip().isdigit() else 0
@@ -192,27 +279,31 @@ def get_available_keywords(persona_id="yun_ung_chae", limit=50):
             "row_index": i,
         })
 
+    if excluded_count > 0:
+        print(f"[sheet_manager] 예약/발행 중복 키워드 {excluded_count}개 제외됨")
+
     return available[:limit]
 
 
-def smart_select_keywords(persona_id="yun_ung_chae", count=3, min_volume=50):
+def smart_select_keywords(persona_id="yun_ung_chae", count=3, min_volume=50, blog_key=None):
     """
-    AI 스마트 키워드 선정 — 다양성 + 조회수 균형
+    AI 스마트 키워드 선정 — 다양성 + 조회수 균형 + 중복 방지
 
     규칙:
     1. 카테고리가 겹치지 않게 (가능한 한)
     2. 조회수가 너무 낮은 건 후순위
-    3. 최근 발행 키워드와 유사한 건 제외
+    3. 예약/발행 키워드와 중복 제외
 
     Args:
         persona_id: 페르소나 ID
         count: 선정할 키워드 수
         min_volume: 최소 합계 조회수
+        blog_key: 블로그 키 (중복 필터용)
 
     Returns:
         list[dict]: 선정된 키워드 리스트
     """
-    available = get_available_keywords(persona_id, limit=200)
+    available = get_available_keywords(persona_id, limit=200, blog_key=blog_key)
 
     if not available:
         return []
@@ -335,7 +426,7 @@ def distribute_times(date_str, count):
     return times
 
 
-def build_schedule(date_str, persona_id, count, min_volume=50):
+def build_schedule(date_str, persona_id, count, min_volume=50, blog_key=None):
     """
     스마트 예약발행 스케줄 생성
 
@@ -344,11 +435,12 @@ def build_schedule(date_str, persona_id, count, min_volume=50):
         persona_id: 페르소나 ID
         count: 발행 수
         min_volume: 최소 조회수
+        blog_key: 블로그 키 (중복 필터용)
 
     Returns:
         list[dict]: [{keyword, category, total, time, row_index}, ...]
     """
-    keywords = smart_select_keywords(persona_id, count=count, min_volume=min_volume)
+    keywords = smart_select_keywords(persona_id, count=count, min_volume=min_volume, blog_key=blog_key)
     times = distribute_times(date_str, len(keywords))
 
     schedule = []
