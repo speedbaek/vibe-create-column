@@ -656,14 +656,35 @@ def generate_hooking_title(topic, persona_id="yun_ung_chae",
 
     raw_text = message.content[0].text.strip()
     titles = []
+
+    # LLM이 가끔 출력하는 메타 텍스트 패턴 (제목이 아닌 설명/서문)
+    META_PATTERNS = re.compile(
+        r'생성하겠습니다|다음과 같습니다|제목을 |개 제목|블로그 제목|'
+        r'아래와 같|참고하여|작성하겠|추천드립|드리겠습|알려드리|'
+        r'말씀드리|준비했습|소개합니다|정리했습|살펴보겠'
+    )
+
     for line in raw_text.split("\n"):
         line = line.strip()
-        # 번호 접두사 제거 (1. 2. 3. 또는 1) 2) 3))
+        if not line:
+            continue
+        # 마크다운 헤더 제거 (# ## ###)
+        line = re.sub(r'^#+\s*', '', line)
+        # 번호 접두사 제거 (1. 2. 3. 또는 1) 2) 3) 또는 - * )
         line = re.sub(r'^[\d]+[.)]\s*', '', line)
+        line = re.sub(r'^[-*]\s+', '', line)
         # 따옴표 제거
-        line = line.strip('"').strip("'").strip()
-        if line and len(line) >= 10:
-            titles.append(line)
+        line = line.strip('"').strip("'").strip('`').strip()
+
+        if not line:
+            continue
+        # 너무 짧거나 너무 긴 줄 제외 (제목은 보통 15~55자)
+        if len(line) < 10 or len(line) > 65:
+            continue
+        # 메타 텍스트(설명/서문) 필터링
+        if META_PATTERNS.search(line):
+            continue
+        titles.append(line)
 
     return titles[:count]
 
